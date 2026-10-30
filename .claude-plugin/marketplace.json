@@ -1,0 +1,12 @@
+{
+  "name": "owner-local",
+  "owner": { "name": "namdongplus" },
+  "description": "Local marketplace for the owner's domain plugins",
+  "plugins": [
+    {
+      "name": "coding-studio",
+      "source": "./coding-studio",
+      "description": "AI software studio: Lead orchestrates research, spec, architect, builder, verifier, reviewer, release-ops with owner milestones."
+    }
+  ]
+}

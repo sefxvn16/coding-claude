@@ -1,0 +1,17 @@
+{
+  "level": "professional",
+  "commands": {
+    "lint": "",
+    "typecheck": "",
+    "test": "",
+    "build": "",
+    "integration": ""
+  },
+  "timeouts": { "default": 900 },
+  "protected_paths": ["tests/**", "**/__snapshots__/**"],
+  "gated_commands": [
+    "vercel deploy*", "vercel*--prod*", "npm publish*", "pnpm publish*", "yarn publish*", "yarn npm publish*",
+    "cargo publish*", "twine upload*", "gh release create*", "netlify deploy*", "firebase deploy*", "docker push*"
+  ],
+  "m2_triggers": ["new dependency", "public API change", "schema change"]
+}

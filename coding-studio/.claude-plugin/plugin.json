@@ -1,0 +1,11 @@
+{
+  "name": "coding-studio",
+  "version": "0.1.2",
+  "description": "AI software studio: Lead orchestrates research, spec, architect, builder, verifier, reviewer, release-ops with owner milestones.",
+  "author": {
+    "name": "namdongplus"
+  },
+  "dependencies": [
+    "codex@openai-codex"
+  ]
+}

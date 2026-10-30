@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: skill-fires
+description: Coding task in a project with .studio/project.json should load the coding-studio skill.
+tags: [triggering]
+runs: 2
+context:
+  scaffold_script: scaffold.sh
