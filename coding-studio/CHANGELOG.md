@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+- Round-3 review fixes: heredoc only when unquoted at top level (fake heredoc no longer hides commands); gate inspects $() and backtick substitutions incl. inside double quotes; deterministic npm/pnpm/yarn/bun option skipping plus ordered-token safety net; run-verify --out refuses symlink/junction escapes from work/; package-manager configs (.npmrc, .yarnrc, .yarnrc.yml, .pnpmfile.cjs, pnpm-workspace.yaml, bunfig.toml) always flagged; script resolution after options (npm --silent test, run-script, pnpm/yarn); git remote reads and in-repo git -C allowed for read-only agents; root PLAN.md ignored in dirty checks.
+- init asks the owner for level (simple/medium/professional) on first creation.
+- Lead must state owner answers (edit mode, no confirmation stops) in Codex handoffs.
+- Known: 6 file-symlink tests skip on Windows without symlink privilege.
+
 ## 0.1.2
 - Add `scripts/codex-run.mjs` (codex exec rooted at `--cd`, optional `--add-dir`); Lead runs Codex builders through it in their own worktree, so Codex writes where the project is. Tests: `tests/codex-run.test.mjs`.
 

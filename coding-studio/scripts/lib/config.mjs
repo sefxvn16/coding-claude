@@ -66,6 +66,7 @@ export const TEST_LIKE = /(^|\/)(tests?|__tests__|spec|specs|e2e|__snapshots__|s
 
 /** Check-config files that are always protected, even outside protected_paths. */
 const CHECK_CONFIG = [
+  [/^(?:.*\/)?(?:\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.cjs|pnpm-workspace\.yaml|bunfig\.toml)$/i, 'package-manager config'],
   [/^(?:.*\/)?(?:jest|vitest|playwright|karma|cypress)\.config\.[cm]?[jt]s$/i, 'test runner config'],
   [/^(?:.*\/)?(?:jest|karma)\.conf(?:ig)?\.(?:js|cjs|mjs|json)$/i, 'test runner config'],
   [/^(?:.*\/)?(?:pytest\.ini|tox\.ini)$/i, 'test runner config'],

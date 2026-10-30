@@ -22,7 +22,8 @@ Template: `${CLAUDE_PLUGIN_ROOT}/skills/coding-studio/templates/project.json`.
    Leave a key as `""` when nothing is detected.
 2. If `.studio/project.json` does not exist: write the template with detected commands filled in.
    If it exists: parse it, add only keys that are missing (including missing `commands` subkeys), never change or remove an existing value, and keep formatting. Invalid JSON: stop and report; do not rewrite.
-3. Set `protected_paths` additions only if the project has other obvious test or snapshot dirs (e.g. `test/**`, `__tests__/**`, `spec/**`) and only on first creation.
+3. `level` (first creation only): propose `simple` (script, prototype, one-off or single user), `medium` (reused, a few files) or `professional` (many users, real data, long maintenance) from what the repo shows, and ask the owner once; write their answer. Never change an existing `level`.
+4. Set `protected_paths` additions only if the project has other obvious test or snapshot dirs (e.g. `test/**`, `__tests__/**`, `spec/**`) and only on first creation.
 
 ## 3. Project `CLAUDE.md` block
 Create `CLAUDE.md` if absent. If it already contains `<!-- coding-studio:begin -->`, skip (the owner may have edited it). Otherwise append at the end:

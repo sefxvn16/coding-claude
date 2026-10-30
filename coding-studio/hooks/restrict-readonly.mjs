@@ -8,10 +8,11 @@
 // exact absolute path of a plugin script). A quoted heredoc is allowed only for gemini-research.
 // Project commands (verifier, architect): only an exact whole-string match with .studio/project.json.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { preToolUse, relToRoot, runHook } from '../scripts/lib/config.mjs';
-import { collapse, stripHeredocs } from '../scripts/lib/shell.mjs';
+import { gitTop, preToolUse, relToRoot, runHook } from '../scripts/lib/config.mjs';
+import { collapse, findHeredoc } from '../scripts/lib/shell.mjs';
 
 const READONLY_AGENTS = new Set(['research', 'architect', 'reviewer', 'release-ops', 'verifier'].map((n) => `coding-studio:${n}`));
 const MAY_RUN_PROJECT_COMMANDS = new Set(['coding-studio:verifier', 'coding-studio:architect']);
@@ -79,9 +80,13 @@ const forms = (p) => [...new Set([p, p.replace(/\\/g, '/')])];
 
 function gitAllowed(args, cwd, root) {
   let i = 0;
+  let directory = cwd;
   while (i < args.length && args[i].startsWith('-')) {
     if (args[i] === '-C' && args[i + 1] !== undefined) {
-      if (relToRoot(root, path.resolve(cwd, args[i + 1])) === null) return false;
+      try {
+        directory = fs.realpathSync(path.resolve(directory, args[i + 1]));
+        if (!fs.statSync(directory).isDirectory() || relToRoot(gitTop(cwd) || fs.realpathSync(root), directory) === null) return false;
+      } catch { return false; }
       i += 2; continue;
     }
     if (GIT_GLOBAL_OK.has(args[i])) { i++; continue; }
@@ -89,6 +94,10 @@ function gitAllowed(args, cwd, root) {
   }
   const sub = args[i];
   const rest = args.slice(i + 1);
+  if (sub === 'remote') {
+    return rest.length === 0 || (rest.length === 1 && rest[0] === '-v') ||
+      (rest.length === 2 && rest[0] === 'get-url' && !!rest[1] && !rest[1].startsWith('-'));
+  }
   if (GIT_READ.has(sub)) {
     return !rest.some((a) => {
       if (!a.startsWith('--')) return false;
@@ -127,11 +136,14 @@ function segmentCheck(words, ctx) {
 function evaluate(command, ctx) {
   let s = String(command);
   let heredoc = false;
-  const stripped = stripHeredocs(s);
-  const hm = /<<-?\s*(['"])\w+\1/.exec(stripped);
-  if (hm) {
+  if (/[\r\n]/.test(s)) {
+    const lines = s.split(/\r?\n/);
+    const hm = findHeredoc(lines[0]);
+    if (!hm || lines[0].slice(hm.index + hm.length).trim()) return 'multiline input is allowed only for a complete Gemini heredoc';
+    const end = lines.findIndex((line, i) => i > 0 && (hm.dash ? line.replace(/^\t+/, '') : line) === hm.marker);
+    if (end < 0 || end !== lines.length - 1) return 'missing heredoc terminator or content after terminator';
     heredoc = true;
-    s = (stripped.slice(0, hm.index) + ' ' + stripped.slice(hm.index + hm[0].length)).replace(/\s+$/, '');
+    s = lines[0].slice(0, hm.index).trimEnd();
   }
   // exact plugin script paths (the only place a backslash is allowed) become unforgeable markers
   for (const [key, file] of [['verify', VERIFY], ['gemini', GEMINI]]) {
@@ -159,7 +171,7 @@ runHook('restrict-readonly', (input, { config, root }) => {
   const command = input.tool_input?.command;
   if (!READONLY_AGENTS.has(agent) || typeof command !== 'string') return null;
 
-  if (MAY_RUN_PROJECT_COMMANDS.has(agent)) {
+  if (MAY_RUN_PROJECT_COMMANDS.has(agent) && !/[\r\n]/.test(command)) {
     const want = collapse(command);
     if (Object.values(config.commands || {}).some((c) => typeof c === 'string' && c.trim() && collapse(c) === want)) return null;
   }

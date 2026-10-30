@@ -5,25 +5,49 @@
 const HARMLESS_TARGET = /^(?:\/dev\/null|\$null|nul)$/i;
 const ENV_ASSIGN = /^[A-Za-z_]\w*=/;
 
-/** Remove bodies of quoted heredocs (<<'EOF'): they are data for the command. */
-export function stripHeredocs(src) {
-  const lines = src.split('\n');
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    out.push(line);
-    const m = /<<-?\s*(['"])([A-Za-z_]\w*)\1/.exec(line);
-    if (!m) continue;
-    const dash = line.includes('<<-');
-    let j = i + 1;
-    while (j < lines.length) {
-      const l = lines[j].replace(/\r$/, '');
-      if ((dash ? l.replace(/^\t+/, '') : l) === m[2]) break;
-      j++;
-    }
-    i = j; // skip body and terminator
+/** A quoted heredoc operator must be outside quotes and nested shell expressions. */
+export function findHeredoc(line) {
+  let quote = null;
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\' && quote !== "'") { i++; continue; }
+    if (quote) { if (c === quote) quote = null; continue; }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
+    if (c === '(' || c === '{') { depth++; continue; }
+    if (c === ')' || c === '}') { depth = Math.max(0, depth - 1); continue; }
+    if (depth || c !== '<' || line[i - 1] === '<') continue;
+    const m = /^<<(-?)[ \t]*(['"])([A-Za-z_]\w*)\2/.exec(line.slice(i));
+    if (m) return { index: i, length: m[0].length, marker: m[3], dash: !!m[1] };
   }
-  return out.join('\n');
+  return null;
+}
+
+/** Remove complete bodies of top-level quoted heredocs: they are literal data. */
+export function stripHeredocs(src) {
+  let rest = src;
+  let out = '';
+  for (;;) {
+    const m = findHeredoc(rest);
+    if (!m) return out + rest;
+    const headerEnd = rest.indexOf('\n', m.index + m.length);
+    if (headerEnd < 0) return out + rest;
+    let start = headerEnd + 1;
+    let found = false;
+    while (start < rest.length) {
+      const newline = rest.indexOf('\n', start);
+      const end = newline < 0 ? rest.length : newline;
+      const line = rest.slice(start, end).replace(/\r$/, '');
+      if ((m.dash ? line.replace(/^\t+/, '') : line) === m.marker) {
+        out += rest.slice(0, headerEnd);
+        rest = rest.slice(end);
+        found = true;
+        break;
+      }
+      start = end + 1;
+    }
+    if (!found) return out + rest;
+  }
 }
 
 /**
@@ -120,18 +144,18 @@ function shellInner(exe, words) {
 /** PowerShell backtick escapes (`n`pm) are removed before matching. */
 const dePowerShell = (s) => String(s).replace(/`/g, '');
 
-/**
- * Variants of `rest` (args after a package manager) with leading options skipped, each starting
- * at the first positional. `--flag=v` and `-x` skip one token; `--flag v` is ambiguous (value or
- * boolean), so both readings are produced.
- */
-function optionVariants(rest, branches = 5) {
-  if (!rest.length || !/^-/.test(rest[0])) return [rest];
-  const one = rest.slice(1);
-  if (rest[0].includes('=') || rest.length < 2 || /^-[^-]/.test(rest[0]) && rest[0].length > 2 || branches <= 0) {
-    return optionVariants(one, branches - 1);
+const VALUE_OPTIONS = new Set(['--prefix', '--registry', '--userconfig', '--cache', '--workspace', '-w',
+  '--tag', '--otp', '--access', '--loglevel', '--before', '--scope', '-C']);
+
+/** Deterministic leading package-manager option skipping, shared with script resolution. */
+export function skipPackageOptions(rest) {
+  let i = 0;
+  while (i < rest.length && rest[i].startsWith('-')) {
+    const flag = rest[i++];
+    if (flag === '--') break;
+    if (!flag.includes('=') && VALUE_OPTIONS.has(flag) && i < rest.length) i++;
   }
-  return [...optionVariants(one, branches - 1), ...optionVariants(rest.slice(2), branches - 1)];
+  return rest.slice(i);
 }
 
 function normWords(input, depth, out) {
@@ -146,11 +170,10 @@ function normWords(input, depth, out) {
       continue;
     }
     if (PM.has(exe)) {
-      const rest = words.slice(1);
-      if (rest.length && /^-/.test(rest[0])) {
-        for (const v of optionVariants(rest)) normWords([words[0], ...v], depth, out);
-        return;
-      }
+      // Retain all tokens for the ordered-word safety net, including option values.
+      out.push([exe, ...words.slice(1)]);
+      const rest = skipPackageOptions(words.slice(1));
+      words = [words[0], ...rest];
       if (['dlx', 'exec', 'x'].includes(rest[0])) {
         words = rest.slice(1);
         while (words.length && /^-/.test(words[0])) words.shift();
@@ -161,14 +184,63 @@ function normWords(input, depth, out) {
       const inner = shellInner(exe, words);
       if (inner !== null) {
         const ps = exe === 'pwsh' || exe === 'powershell';
-        out.push(...normalizedSegments(ps ? dePowerShell(inner) : inner, depth + 1).segments);
+        out.push(...normalizedSegments(inner, depth + 1, ps).tokenSegments);
         return;
       }
     }
     break;
   }
   words[0] = exeName(words[0]);
-  out.push(words.join(' '));
+  out.push(words);
+}
+
+/** Locate one expansion's closing delimiter, respecting nested expansions and quotes. */
+function substitutionEnd(s, start, backtick, powershell) {
+  let quote = null;
+  let depth = 1;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\' && !powershell && quote !== "'") { i++; continue; }
+    if (quote === "'") { if (c === "'") quote = null; continue; }
+    if (c === '$' && s[i + 1] === '(') {
+      const end = substitutionEnd(s, i + 2, false, powershell);
+      if (end < 0) return -1;
+      i = end; continue;
+    }
+    if (c === '`' && !powershell) {
+      if (backtick && !quote) return i;
+      const end = substitutionEnd(s, i + 1, true, powershell);
+      if (end < 0) return -1;
+      i = end; continue;
+    }
+    if (quote) { if (c === quote) quote = null; continue; }
+    if (c === "'" || c === '"') { quote = c; continue; }
+    if (!backtick && c === '(') depth++;
+    if (!backtick && c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+function substitutions(command, powershell) {
+  const s = stripHeredocs(command);
+  const out = [];
+  let quote = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\' && !powershell && quote !== "'") { i++; continue; }
+    if (quote === "'") { if (c === "'") quote = null; continue; }
+    const backtick = c === '`' && !powershell;
+    if (backtick || (c === '$' && s[i + 1] === '(')) {
+      const start = i + (backtick ? 1 : 2);
+      const end = substitutionEnd(s, start, backtick, powershell);
+      out.push(s.slice(start, end < 0 ? s.length : end));
+      i = end < 0 ? s.length : end;
+      continue;
+    }
+    if (quote) { if (c === quote) quote = null; }
+    else if (c === "'" || c === '"') quote = c;
+  }
+  return out;
 }
 
 /**
@@ -177,10 +249,14 @@ function normWords(input, depth, out) {
  * shell -c / cmd /c expanded recursively. `powershell: true` removes backtick escapes first.
  */
 export function normalizedSegments(command, depth = 0, powershell = false) {
-  const { segments, unbalanced } = lex(powershell ? dePowerShell(command) : command);
+  const source = powershell ? dePowerShell(command) : String(command);
+  const { segments, unbalanced } = lex(source);
   const out = [];
   for (const seg of segments) normWords(seg.words, depth, out);
-  return { segments: out, unbalanced };
+  for (const inner of substitutions(source, powershell)) {
+    out.push(...normalizedSegments(inner, depth + 1, powershell).tokenSegments);
+  }
+  return { segments: out.map((words) => words.join(' ')), tokenSegments: out, unbalanced };
 }
 
 export const collapse = (s) => String(s).trim().replace(/\s+/g, ' ');

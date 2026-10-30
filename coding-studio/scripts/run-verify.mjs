@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { checkConfigKind, findProject, isStudioPath, matchPath } from './lib/config.mjs';
+import { exeName, lex, skipPackageOptions } from './lib/shell.mjs';
 
 const ORDER = ['lint', 'typecheck', 'test', 'build', 'integration'];
 const DEFAULT_TIMEOUT_S = 900;
@@ -16,17 +17,51 @@ const PACKAGE_KEYS = ['scripts', 'jest', 'vitest', 'mocha', 'ava', 'c8', 'nyc'];
 const SKIP_RE = /\.skip\(|\.only\(|\bxit\(|\bxdescribe\(|\bxtest\(|@pytest\.mark\.skip|\bpytest\.skip\(|@unittest\.skip|\bt\.Skip\(|@Disabled|\bit\.todo|\{\s*skip:\s*true\s*\}/g;
 const ASSERT_RE = /\bassert|\bexpect\(/g;
 const SNAPSHOT_RE = /(^|\/)__snapshots__\/|\.snap$|golden|(^|\/)snapshots?\//i;
-const NOT_WORK = ':(exclude)work';
+const IGNORED_PATHS = [':(exclude)work', ':(exclude,literal)PLAN.md'];
 
 class ConfigError extends Error {}
 let reportOut;
+let reportRoot;
+
+const markdownOut = (out) => out.replace(/\.json$/i, '') + '.md';
+
+function realDestination(file) {
+  let ancestor = file;
+  const missing = [];
+  for (;;) {
+    try {
+      fs.lstatSync(ancestor);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      missing.unshift(path.basename(ancestor));
+      ancestor = parent;
+      continue;
+    }
+    return path.join(fs.realpathSync(ancestor), ...missing);
+  }
+}
+
+function inside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative !== '' && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+}
 
 function resolveReportOut(root, out) {
   const resolved = path.resolve(root, out);
-  const work = path.resolve(root, 'work') + path.sep;
-  const normalize = (p) => process.platform === 'win32' ? p.toLowerCase() : p;
-  if (!normalize(resolved).startsWith(normalize(work))) {
-    throw new ConfigError('--out must resolve inside the project work/ directory');
+  const work = path.resolve(root, 'work');
+  const realWork = path.join(fs.realpathSync(root), 'work');
+  for (const target of [resolved, markdownOut(resolved)]) {
+    if (!inside(work, target)) throw new ConfigError('--out must resolve inside the project work/ directory');
+    try {
+      if (fs.lstatSync(target).isSymbolicLink()) throw new ConfigError('--out report targets must not be symlinks');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (!inside(realWork, realDestination(target))) {
+      throw new ConfigError('--out must resolve inside the real project work/ directory');
+    }
   }
   return resolved;
 }
@@ -108,13 +143,13 @@ async function runCommands(root, config) {
   return results;
 }
 
-/** HEAD + hash of all tracked changes (work/ ignored): detects commands that mutate the checkout. */
+/** HEAD + hash of tracked changes, ignoring work/ and root PLAN.md. */
 function snapshot(root) {
-  const diff = git(['diff', 'HEAD', '--binary', '--no-ext-diff', '--', '.', NOT_WORK], root, true) ?? '';
+  const diff = git(['diff', 'HEAD', '--binary', '--no-ext-diff', '--', '.', ...IGNORED_PATHS], root, true) ?? '';
   return {
     head: git(['rev-parse', 'HEAD'], root).trim(),
     trackedHash: crypto.createHash('sha256').update(diff).digest('hex'),
-    indexFlags: new Map(git(['ls-files', '-v', '-z'], root).split('\0').filter(Boolean).map((line) => [line.slice(2), line[0]])),
+    indexFlags: new Map(git(['ls-files', '-v', '-z', '--', '.', ...IGNORED_PATHS], root).split('\0').filter(Boolean).map((line) => [line.slice(2), line[0]])),
   };
 }
 
@@ -132,14 +167,18 @@ function packageCommandFiles(root, commands) {
   try { pkg = JSON.parse(git(['show', 'HEAD:./package.json'], root, true)); } catch { return new Set(); }
   const expanded = {};
   for (const [name, command] of Object.entries(commands || {})) {
-    const tokens = command.match(/"[^"]*"|'[^']*'|[^\s;&|]+/g)?.map((t) => t.replace(/^["']|["']$/g, '')) || [];
-    const manager = tokens[0]?.replace(/\.cmd$/i, '').toLowerCase();
-    let script;
-    if (manager === 'npm') script = tokens[1] === 'run' ? tokens[2] : tokens[1] === 'test' ? 'test' : null;
-    else if (manager === 'pnpm' || manager === 'yarn') script = tokens[1] === 'run' ? tokens[2] : tokens[1];
-    if (script && typeof pkg?.scripts?.[script] === 'string') {
-      const parts = pkg.scripts[script].match(/"[^"]*"|'[^']*'|[^\s;&|]+/g) || [];
-      expanded[name] = parts;
+    for (const { words: tokens } of lex(command).segments) {
+      const manager = exeName(tokens[0] ?? '');
+      const args = skipPackageOptions(tokens.slice(1));
+      let script;
+      if (['npm', 'pnpm', 'yarn', 'bun'].includes(manager)) {
+        if (['run', 'run-script'].includes(args[0])) script = skipPackageOptions(args.slice(1))[0];
+        else if (manager !== 'npm' || args[0] === 'test') script = args[0];
+      }
+      if (script && typeof pkg?.scripts?.[script] === 'string') {
+        const parts = pkg.scripts[script].match(/"[^"]*"|'[^']*'|[^\s;&|]+/g) || [];
+        expanded[name] = [...(expanded[name] || []), ...parts];
+      }
     }
   }
   const files = new Set();
@@ -155,7 +194,7 @@ function packageCommandFiles(root, commands) {
   return files;
 }
 
-/** Changed files: committed (mergeBase...HEAD), uncommitted tracked, and untracked. work/ ignored. */
+/** Committed, uncommitted tracked and untracked changes, excluding work/ and root PLAN.md. */
 function collectChanges(root, mergeBase) {
   const changes = new Map();
   const add = (out, source) => {
@@ -164,9 +203,9 @@ function collectChanges(root, mergeBase) {
       if (st && rest.length) changes.set(rest.join('\t'), { status: st[0], source });
     }
   };
-  add(git(['diff', '--no-renames', '--relative', '--name-status', `${mergeBase}...HEAD`, '--', '.', NOT_WORK], root), 'committed');
-  add(git(['diff', '--no-renames', '--relative', '--name-status', 'HEAD', '--', '.', NOT_WORK], root, true), 'uncommitted');
-  for (const f of git(['ls-files', '--others', '--exclude-standard', '--', '.', NOT_WORK], root).split('\n').filter(Boolean)) {
+  add(git(['diff', '--no-renames', '--relative', '--name-status', `${mergeBase}...HEAD`, '--', '.', ...IGNORED_PATHS], root), 'committed');
+  add(git(['diff', '--no-renames', '--relative', '--name-status', 'HEAD', '--', '.', ...IGNORED_PATHS], root, true), 'uncommitted');
+  for (const f of git(['ls-files', '--others', '--exclude-standard', '--', '.', ...IGNORED_PATHS], root).split('\n').filter(Boolean)) {
     changes.set(f, { status: 'A', source: 'untracked' });
   }
   return changes;
@@ -211,7 +250,7 @@ function analyzeManifest(root, rel, change, base) {
 function toMarkdown(r) {
   const L = [
     `# Verify: ${r.result}${r.result === 'PASS-FLAGGED' ? ' (needs reviewer/Lead review of flags)' : ''}`, '',
-    `- HEAD: ${r.head}${r.dirty ? ' (working tree has uncommitted changes outside work/)' : ''}`,
+    `- HEAD: ${r.head}${r.dirty ? ' (working tree has uncommitted changes outside work/ and root PLAN.md)' : ''}`,
     `- Base: ${r.base}  Merge-base: ${r.mergeBase}`,
   ];
   if (r.invalidReason) L.push(`- INVALID: ${r.invalidReason}`);
@@ -225,9 +264,11 @@ function toMarkdown(r) {
 }
 
 function writeReport(out, report, md) {
+  resolveReportOut(reportRoot, out);
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+  resolveReportOut(reportRoot, out);
   fs.writeFileSync(out, JSON.stringify(report, null, 2));
-  fs.writeFileSync(out.replace(/\.json$/i, '') + '.md', md);
+  fs.writeFileSync(markdownOut(out), md);
 }
 
 function guardedConfigDiff(root, mergeBase, config) {
@@ -242,7 +283,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const project = findProject(args.cwd || process.cwd());
   if (!project) throw new ConfigError('.studio/project.json not found');
-  if (args.out) reportOut = resolveReportOut(project.root, args.out);
+  if (args.out) {
+    reportRoot = project.root;
+    reportOut = resolveReportOut(reportRoot, args.out);
+  }
   if (project.broken) throw new ConfigError(`.studio/project.json is unparseable: ${project.error}`);
   const { root, config } = project;
 
@@ -293,7 +337,7 @@ async function main() {
   const result = invalidReason ? 'INVALID' : !allOk ? 'FAIL' : flagged.length ? 'PASS-FLAGGED' : 'PASS';
   const report = {
     result, invalidReason, head: after.head,
-    dirty: git(['status', '--porcelain', '--', '.', NOT_WORK], root).trim().length > 0,
+    dirty: git(['status', '--porcelain', '--', '.', ...IGNORED_PATHS], root).trim().length > 0,
     base, mergeBase, commands,
     changedFiles: [...changes].map(([p, c]) => ({ path: p, ...c })),
     flagged, generatedAt: new Date().toISOString(),
