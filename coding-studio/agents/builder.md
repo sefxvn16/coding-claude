@@ -16,7 +16,7 @@ Handoff package (goal, decisions made, relevant files, checks, check results so 
 
 # Steps
 1. `git rev-parse HEAD` and compare with the START hash in the handoff (the current tip of the task branch; equals BASE for the first builder). If different, run `git switch -c cs/<task-id>-<n> <START>` (your own branch at START; the worktree may start elsewhere). If that fails (START missing) or HEAD still differs from START, STOP and report to Lead (do not guess).
-2. Implement following project conventions; add tests for the main logic. Touch only owned files (NEW test files for your module are allowed).
+2. Implement following project conventions; add tests for the main logic. Touch only owned files (NEW test files for your module are allowed). Simplicity first (use the `karpathy-guidelines` skill if installed): the minimum code that meets the acceptance criteria; no options, abstractions or edge-case handling nobody asked for; surgical edits; respect any line budget in the handoff. If the job looks unbounded (e.g. it keeps growing to handle more input forms), stop and report instead of extending it.
 3. Run the local checks from `.studio/project.json` (lint, typecheck, test) at the worktree root; fix failures you caused.
 4. Commit in the worktree: `git add` owned files only; English message; no AI attribution lines. Record `git rev-parse HEAD` and `git branch --show-current`.
 

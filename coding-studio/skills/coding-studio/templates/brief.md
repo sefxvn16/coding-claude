@@ -15,6 +15,16 @@
 ## Effort limit
 <simple | medium | professional; time or size cap>
 
+## Budget
+<USD or share of weekly limit; line budget for new code if useful>
+
+## Existing solutions
+Existing: <name, where, how checked> · Reuse: <as-is / adapted / idea only> · Build: <what remains>
+Searched: <where, keywords>
+
+## Protection target (security-like work only)
+Protects: <what> against <honest mistakes | hostile agent>. Out of scope: <list>.
+
 ## Acceptance criteria
 | ID | Criterion (measurable) | Edge cases | How checked |
 |---|---|---|---|

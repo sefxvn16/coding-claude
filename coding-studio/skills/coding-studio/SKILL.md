@@ -23,7 +23,16 @@ Read-only agents (research, architect, reviewer, release-ops, verifier) keep Bas
 4. Classify.
    - Small = all of: one file or local change; no public-interface change (API, schema, data format); no new dependency; easy to revert.
    - Complex = anything else (2+ files/modules, new feature, interface change, new dependency, 5+ steps).
-5. Complex: ask missing information in ONE batch; then create `PLAN.md` with the `plan-tracker` skill, each item with a measurable done-criterion and a PASS/FAIL result with evidence.
+5. Complex: ask missing information in ONE batch; then create `PLAN.md` with the `plan-tracker` skill, each item with a measurable done-criterion and a PASS/FAIL result with evidence. The first PLAN items are always the project gates in section 0b.
+
+## 0b. Project gates (complex tasks and every new project; cost control)
+1. Survey before design: `coding-studio:research` searches, cheapest first: the repo, installed skills/plugins and installed marketplaces (`~/.claude/plugins/marketplaces/`), community marketplaces and GitHub (for a plugin: existing Claude Code plugins/skills with the same job). Result in `02-research.md` as "Existing: <name, where, how checked> · Reuse: <as-is / adapted, core untouched / idea only> · Build: <what remains>", with the searches done (where, keywords). Third-party plugins/skills: security-check before any recommendation to install. The owner decides reuse vs build at M1; no design before that.
+2. Budget: write a budget in `PLAN.md` (USD or share of the weekly limit, owner's number). Report spend at 50% and 80%; at 100% stop and ask. Estimate before any expensive step (review rounds, nested `claude -p` runs, evals).
+3. Protection target (M2 dossier, for anything security-like: hooks, gating, sandboxing, validation): state what is protected, against whom (honest mistakes vs a hostile agent), and what is explicitly out of scope. Prefer platform mechanisms (agent `tools` lists, `permissions.ask/deny`, the verifier diff) over custom parsers. If an option has no natural end (e.g. parsing shell strings to block commands), say so with a cost estimate BEFORE the owner chooses.
+4. Spec first: acceptance criteria and their tests exist before the builder starts; the architect reviews the design once before code when M2 applies.
+5. Review cap: at most 2 review rounds per deliverable. Round 1 = full review against the brief and the protection target; round 2 = only verify the round-1 fixes. Findings outside the protection target are LOW. Anything still open after round 2 goes into "Known limits" in the README/dossier and to the owner; never open round 3 on your own.
+6. Models and live runs: builders and reviewers on Sonnet by default; Opus only for the architect at design time or when the owner asks. At most one nested live run (`claude -p` smoke/trial) per deliverable, plus evals only when asked.
+7. Phases: start a new session per phase (survey, design, build, review, release); `PLAN.md` and `work/<task-id>/` carry the state.
 6. Branch: record `BASE=$(git rev-parse HEAD)` on the integration branch (say which), then `git switch -c cs/<task-id>`. BASE is the commit where the task branch was cut, and the approved `.studio/project.json` must already be committed at BASE. All task commits end up on `cs/<task-id>`. Write BASE (full SHA) into every handoff and into `PLAN.md`; never recompute it later.
 
 ## 1. Small-task shortcut
@@ -85,7 +94,7 @@ Default is Claude only. Say one line of reasoning before using either.
 STANDARD by default. SECURITY when the diff touches authentication, authorization, personal data, or external input; then add Codex review (see above).
 
 ## 9. Stop rules and decisions
-- More than 3 fix rounds on one problem: stop and tell the owner what failed and the options.
+- More than 3 fix rounds on one problem: stop and tell the owner what failed and the options. Review rounds count separately and are capped at 2 (section 0b).
 - After EVERY owner decision: re-scan dependencies (files, config, hooks, docs, other plan items), state the consequences, conflicts, overlaps, and give a recommendation without waiting to be asked.
 - Facts that change a conclusion must be traced to source by you before use, including Gemini or any other AI output.
 - Do not write most of the code yourself, do not self-approve gates, do not run irreversible or outward actions (push, deploy, publish, send, delete) without the owner's approval of that specific command. Global ask rules for git push/rm/reset/clean and commit attribution settings already apply; do not duplicate them.

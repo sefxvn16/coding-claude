@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+- Lead skill: project gates (survey existing solutions incl. GitHub/marketplaces before design, budget with 50/80% reports, protection target at M2, spec first, max 2 review rounds, Sonnet by default, one nested live run, new session per phase).
+- reviewer: Sonnet by default; severity judged against the protection target; round 2 verifies fixes only.
+- builder: simplicity-first rule and line budget; stop when a job looks unbounded.
+- brief template: budget, existing solutions, protection target.
+
 ## 0.1.4
 - Fail-closed hooks: nesting depth (20) and input length (20k chars) are capped; when the cap is hit or any exception occurs, gate-commands returns `ask` ("command too complex to check"), restrict-readonly `deny`, protect-checks a warning. `runHook` takes an optional fail-closed fallback. Fixes the `npm publish # $($(...` x2000 RangeError that exited 0 with no decision.
 - run-verify: package-script expansion covers npm aliases (`t`, `tst`, `test`, `run`/`rum`/`urn`/`run-script`, `start`/`stop`/`restart`), `node --run`, `pnpm run|<script>`, `yarn run|<script>`, `bun run`, pre/post hooks, and scripts calling other scripts (depth cap 10, cycle-safe); every helper file in the chain is flagged when changed. `--out` refuses hardlinked targets (link count > 1). `.pnpmfile.mjs` and `.yarn/plugins/**` are flagged as package-manager config.
