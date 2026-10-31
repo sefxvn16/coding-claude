@@ -1,6 +1,6 @@
 {
   "name": "coding-claude",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Claude-only software studio: Lead orchestrates research, spec, architect, parallel builders, verifier, reviewer, release-ops subagents with owner milestones.",
   "author": {
     "name": "namdongplus"

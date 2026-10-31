@@ -28,6 +28,7 @@ Creates `.studio/project.json` (commands detected from package.json, pyproject, 
 | Key | Meaning |
 |---|---|
 | `level` | `simple`, `medium`, or `professional`: how much testing/docs the project expects |
+| `setup` | top-level, optional: command each builder runs first in its fresh worktree (e.g. `npm ci`); init detects it from the lockfile. Not run by the verifier and not allowed for read-only agents (it is not in `commands`) |
 | `commands` | `lint`, `typecheck`, `test`, `build`, `integration`; run by the verifier in this order, empty = skipped |
 | `protected_paths` | globs (tests, snapshots, ...) whose changes are flagged by the verifier and warned by the hook. `.studio/**` and check-config files (package.json scripts, jest/vitest/playwright/karma configs, pytest.ini, pyproject.toml, setup.cfg, tox.ini, `.github/workflows/**`, files named in `commands`, files referenced by any package.json script) are always protected |
 | `gated_commands` | command globs (e.g. `vercel deploy*`, `npm publish*`) that always trigger an approval prompt; matched after normalizing wrappers (see Hooks) |
@@ -72,7 +73,7 @@ claude plugin marketplace remove owner-local   # only if no other plugin uses it
 
 - Plugin settings cannot ship permission rules; push/rm/reset/clean gating and commit attribution come from the user's global settings.
 - Plugin agents ignore `permissionMode`, `hooks`, `mcpServers`. The `research`, `architect`, `reviewer`, `release-ops`, `verifier` agents keep `Bash`; their read-only behavior is enforced by the `restrict-readonly` hook allowlist (a safety net: it does nothing if node or the plugin is unavailable) plus instructions. `spec` has no Bash.
-- Builder worktrees (`isolation: worktree`) lose uncommitted work; builders must commit and Lead merges. The base of a new worktree is not verified: the builder creates its own branch at the recorded BASE sha. `${CLAUDE_PLUGIN_ROOT}` is verified only in skill content, so agents receive absolute script paths in the handoff.
+- Builder worktrees (`isolation: worktree`) lose uncommitted work; builders must commit and Lead merges. A subagent worktree starts from the repository's default branch (on the remote; local HEAD when there is no remote) unless the setting `worktree.baseRef` is `"head"`, and is removed automatically when the subagent ends without changes, so the builder creates its own branch at the recorded START sha. A fresh worktree has no dependencies or gitignored files: builders run `setup`, and only files listed in `.worktreeinclude` are copied in. Resuming a BLOCKED builder with `SendMessage` is documented but not yet tried in a live run. `${CLAUDE_PLUGIN_ROOT}` is verified only in skill content, so agents receive absolute script paths in the handoff.
 - A user or project agent named `reviewer` would win over a bare name; always use the `coding-claude:` prefix.
 - Hooks cannot be relied on to block every shell write; deleting `.studio/` disables the hooks (the verifier diff still flags it and refuses changed commands).
 - Interactive behavior of the `ask` prompt and `/reload-plugins` was verified from docs and headless runs only.

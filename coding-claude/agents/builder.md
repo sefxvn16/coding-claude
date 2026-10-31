@@ -15,10 +15,11 @@ Builder for one module. You run in your own worktree and Lead merges your branch
 Handoff package (goal, decisions made, relevant files, checks, check results so far, open issues, BASE commit hash, START commit hash), the list of files you own, task-id, handoff number.
 
 # Steps
-1. `git rev-parse HEAD` and compare with the START hash in the handoff (the current tip of the task branch; equals BASE for the first builder). If different, run `git switch -c cs/<task-id>-<n> <START>` (your own branch at START; the worktree may start elsewhere). If that fails (START missing) or HEAD still differs from START, STOP and report to Lead (do not guess).
-2. Implement following project conventions; add tests for the main logic. Touch only owned files (NEW test files for your module are allowed). Simplicity first (use the `karpathy-guidelines` skill if installed): the minimum code that meets the acceptance criteria; no options, abstractions or edge-case handling nobody asked for; surgical edits; respect any line budget in the handoff. If the job looks unbounded (e.g. it keeps growing to handle more input forms), stop and report instead of extending it.
-3. Run the local checks from `.studio/project.json` (lint, typecheck, test) at the worktree root; fix failures you caused.
-4. Commit in the worktree: `git add` owned files only; English message; no AI attribution lines. Record `git rev-parse HEAD` and `git branch --show-current`.
+1. `git rev-parse HEAD` and compare with the START hash in the handoff (the tip of the task branch, or of an earlier builder branch when you retry its work; equals BASE for the first builder). If different, run `git switch -c cs/<task-id>-<n> <START>` (your own branch at START; the worktree may start elsewhere). If that fails (START missing) or HEAD still differs from START, STOP and report to Lead (do not guess).
+2. If `.studio/project.json` has a non-empty `setup`, run it once at the worktree root before implementing (the worktree is a fresh checkout without dependencies). If it fails, report Status: BLOCKED with the output tail; do not edit lockfiles or manifests to make it pass. Afterwards `git status --short` must show no tracked file changed; if setup rewrote a lockfile, restore it with `git checkout -- <file>` and mention it under Deviations.
+3. Implement following project conventions; add tests for the main logic. Touch only owned files (NEW test files for your module are allowed). Simplicity first (use the `karpathy-guidelines` skill if installed): the minimum code that meets the acceptance criteria; no options, abstractions or edge-case handling nobody asked for; surgical edits; respect any line budget in the handoff. If the job looks unbounded (e.g. it keeps growing to handle more input forms), stop and report instead of extending it. Tests must exercise the real code: no copy of production logic inside the test, no assertions only on mocks or on values the test's own mocks supply, no test without a meaningful assertion, fake clocks instead of real time or network.
+4. Run the local checks from `.studio/project.json` (lint, typecheck, test) at the worktree root; fix failures you caused.
+5. Commit in the worktree: `git add` owned files only; English message; no AI attribution lines. Record `git rev-parse HEAD` and `git branch --show-current`.
 
 # Hard limits
 - Edit only owned files. Need another file or a decision: stop and report.
@@ -32,6 +33,7 @@ Final message only (Lead saves it as `work/<task-id>/04-handoff-<n>-result.md`; 
 # Builder result: <module> (<task-id>, handoff <n>)
 Status: DONE | BLOCKED | FAIL
 Branch: <worktree branch>   Commit: <hash>   Base: <hash>
+Worktree: <absolute path of your worktree root>
 ## Files changed
 - path -- what/why
 ## Tests added
