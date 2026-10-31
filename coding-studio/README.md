@@ -6,10 +6,10 @@ Requirements: Claude Code 2.1.x, Node 20+, a git repo, plugin `codex@openai-code
 
 ## Install (local marketplace)
 
-The plugin lives in the marketplace directory `3_Plugins` (marketplace name `owner-local`).
+The plugin lives in the marketplace directory `3_Plugins\Lynn` (marketplace name `owner-local`).
 
 ```
-claude plugin marketplace add "D:\OneDrive\AI Relax\1_llm_configs\Claude\3_Plugins" --scope local
+claude plugin marketplace add "D:\OneDrive\AI Relax\1_llm_configs\Claude\3_Plugins\Lynn" --scope local
 claude plugin install coding-studio@owner-local --scope local
 claude plugin enable codex@openai-codex --scope local
 ```

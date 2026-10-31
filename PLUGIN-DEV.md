@@ -1,6 +1,6 @@
 # Plugin development on this machine
 
-Read this before starting a new plugin in `3_Plugins`. Facts below were verified by running them (2026-10-30/31, Windows 11, Claude Code 2.1.314, Node 24, Codex CLI 0.166); re-check only what you change. Evidence: `D:\OneDrive\AI Relax\projects\Lynn\work\phase2\` (spike-hooks.md, spike-agents.md, gemini-codex.md, smoke-agents.md, trial-19.md).
+Read this before starting a new plugin in `3_Plugins\Lynn`. Facts below were verified by running them (2026-10-30/31, Windows 11, Claude Code 2.1.314, Node 24, Codex CLI 0.166); re-check only what you change. The evidence notes (spike-hooks.md, spike-agents.md, gemini-codex.md, smoke-agents.md, trial-19.md) were deleted on 2026-10-31.
 
 ## How to build a plugin here
 
@@ -15,7 +15,7 @@ Lesson from coding-studio 0.1.0-0.1.4: four fix rounds, most of them chasing byp
 
 ## Layout and install
 
-- Marketplace: `3_Plugins/.claude-plugin/marketplace.json` (name `owner-local`, already registered). Add one entry per plugin with `"source": "./<plugin>"`.
+- Marketplace: `3_Plugins/Lynn/.claude-plugin/marketplace.json` (name `owner-local`, already registered). Add one entry per plugin with `"source": "./<plugin>"`.
 - Directory-source marketplace plugins load in place from the source folder: edit, then start a new session (no reinstall, no version bump needed). `/reload-plugins` in a live session: not verified.
 - Install per project: `claude plugin install <name>@owner-local --scope local`.
 - Dev loop without installing: `claude --plugin-dir "<plugin dir>" ...`; inspect with `claude --plugin-dir "<dir>" plugin details <name>` (takes the name, not a path).
