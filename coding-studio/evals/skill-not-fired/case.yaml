@@ -1,7 +1,0 @@
-schema_version: "1.1"
-name: skill-not-fired
-description: Non-coding question must not load the coding-studio skill.
-tags: [triggering]
-runs: 2
-context:
-  scaffold_script: scaffold.sh
