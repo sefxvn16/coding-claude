@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+- Fail-closed hooks: nesting depth (20) and input length (20k chars) are capped; when the cap is hit or any exception occurs, gate-commands returns `ask` ("command too complex to check"), restrict-readonly `deny`, protect-checks a warning. `runHook` takes an optional fail-closed fallback. Fixes the `npm publish # $($(...` x2000 RangeError that exited 0 with no decision.
+- run-verify: package-script expansion covers npm aliases (`t`, `tst`, `test`, `run`/`rum`/`urn`/`run-script`, `start`/`stop`/`restart`), `node --run`, `pnpm run|<script>`, `yarn run|<script>`, `bun run`, pre/post hooks, and scripts calling other scripts (depth cap 10, cycle-safe); every helper file in the chain is flagged when changed. `--out` refuses hardlinked targets (link count > 1). `.pnpmfile.mjs` and `.yarn/plugins/**` are flagged as package-manager config.
+- gate-commands: npm abbreviations of publish (`pub`, `publ`, `publi`; prefix length >= 3), `corepack` as a wrapper, `node <path>/npm-cli.js|pnpm.cjs|yarn.js` treated as the package manager, and shells fed through stdin (`echo ... | bash`, `bash <<EOF`, `bash -s`, `bash <<< ...`, pwsh/powershell/cmd): content is extracted and matched; if it cannot be extracted (`curl ... | bash`, `cat f | sh`) the gate asks.
+- Known unfixable classes: arbitrary scripts or programs that call publish internally (`node deploy.mjs`, make targets, CI wrappers), downloaded code, encoded commands, aliases and shell functions defined elsewhere.
+
 ## 0.1.3
 - Round-3 review fixes: heredoc only when unquoted at top level (fake heredoc no longer hides commands); gate inspects $() and backtick substitutions incl. inside double quotes; deterministic npm/pnpm/yarn/bun option skipping plus ordered-token safety net; run-verify --out refuses symlink/junction escapes from work/; package-manager configs (.npmrc, .yarnrc, .yarnrc.yml, .pnpmfile.cjs, pnpm-workspace.yaml, bunfig.toml) always flagged; script resolution after options (npm --silent test, run-script, pnpm/yarn); git remote reads and in-repo git -C allowed for read-only agents; root PLAN.md ignored in dirty checks.
 - init asks the owner for level (simple/medium/professional) on first creation.

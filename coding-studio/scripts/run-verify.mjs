@@ -59,6 +59,12 @@ function resolveReportOut(root, out) {
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
+    try {
+      const st = fs.lstatSync(target);
+      if (st.isFile() && st.nlink > 1) throw new ConfigError('--out report targets must not be hardlinked (link count > 1)');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
     if (!inside(realWork, realDestination(target))) {
       throw new ConfigError('--out must resolve inside the real project work/ directory');
     }
@@ -161,29 +167,62 @@ function invalidIndexFiles(before, after) {
   }).sort();
 }
 
-/** Expand a configured package-manager command through scripts at HEAD once. */
+const PMS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+const NPM_TEST = new Set(['t', 'tst', 'test']);
+const NPM_LIFECYCLE = new Set(['start', 'stop', 'restart']);
+const RUN_WORDS = new Set(['run', 'run-script', 'rum', 'urn']);
+const MAX_CHAIN = 10;
+
+/** Script names a command line invokes through npm/pnpm/yarn/bun aliases or `node --run`. */
+function scriptsInvoked(command, scripts) {
+  const found = [];
+  for (const { words } of lex(command).segments) {
+    let w = words.slice();
+    while (w.length && /^[A-Za-z_]\w*=/.test(w[0])) w.shift();
+    const manager = exeName(w[0] ?? '');
+    if (manager === 'node') {
+      const i = w.findIndex((x) => x === '--run' || x.startsWith('--run='));
+      if (i >= 0) found.push(w[i].includes('=') ? w[i].slice(6) : w[i + 1]);
+    } else if (PMS.has(manager)) {
+      const args = skipPackageOptions(w.slice(1));
+      const sub = args[0];
+      if (sub === undefined) continue;
+      if (RUN_WORDS.has(sub)) found.push(skipPackageOptions(args.slice(1))[0]);
+      else if (manager === 'npm') {
+        if (NPM_TEST.has(sub)) found.push('test');
+        else if (NPM_LIFECYCLE.has(sub)) found.push(sub);
+      } else if (NPM_TEST.has(sub) && !Object.hasOwn(scripts, sub)) found.push('test');
+      else found.push(sub);
+    }
+  }
+  return found.filter((name) => typeof name === 'string' && name);
+}
+
+/**
+ * Files run by the configured commands through package scripts at HEAD: expands npm/pnpm/yarn/bun
+ * aliases and `node --run`, follows scripts that call other scripts (depth cap, cycle-safe, pre/post hooks).
+ */
 function packageCommandFiles(root, commands) {
   let pkg;
   try { pkg = JSON.parse(git(['show', 'HEAD:./package.json'], root, true)); } catch { return new Set(); }
-  const expanded = {};
-  for (const [name, command] of Object.entries(commands || {})) {
-    for (const { words: tokens } of lex(command).segments) {
-      const manager = exeName(tokens[0] ?? '');
-      const args = skipPackageOptions(tokens.slice(1));
-      let script;
-      if (['npm', 'pnpm', 'yarn', 'bun'].includes(manager)) {
-        if (['run', 'run-script'].includes(args[0])) script = skipPackageOptions(args.slice(1))[0];
-        else if (manager !== 'npm' || args[0] === 'test') script = args[0];
-      }
-      if (script && typeof pkg?.scripts?.[script] === 'string') {
-        const parts = pkg.scripts[script].match(/"[^"]*"|'[^']*'|[^\s;&|]+/g) || [];
-        expanded[name] = [...(expanded[name] || []), ...parts];
+  const scripts = pkg?.scripts && typeof pkg.scripts === 'object' ? pkg.scripts : {};
+  const bodies = [];
+  const seen = new Set();
+  const visit = (command, depth) => {
+    if (depth > MAX_CHAIN) return;
+    for (const name of scriptsInvoked(command, scripts)) {
+      for (const n of [`pre${name}`, name, `post${name}`]) {
+        if (typeof scripts[n] !== 'string' || seen.has(n)) continue;
+        seen.add(n);
+        bodies.push(scripts[n]);
+        visit(scripts[n], depth + 1);
       }
     }
-  }
+  };
+  for (const command of Object.values(commands || {})) if (typeof command === 'string') visit(command, 0);
   const files = new Set();
-  for (const parts of Object.values(expanded)) {
-    for (const raw of parts) {
+  for (const body of bodies) {
+    for (const raw of body.match(/"[^"]*"|'[^']*'|[^\s;&|]+/g) || []) {
       const token = raw.replace(/^["']|["']$/g, '');
       if (token.startsWith('-') || /^[a-z]+:\/\//i.test(token)) continue;
       if (!/[\\/]/.test(token) && !/\.(?:[cm]?js|ts|py|sh|ps1)$/i.test(token)) continue;

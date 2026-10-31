@@ -2,6 +2,11 @@
 // Handles quotes, command separators (&& || ; | & newline, parentheses, standalone braces),
 // harmless vs file redirects, and quoted heredoc bodies. No dependencies.
 
+export const MAX_DEPTH = 20;
+export const MAX_LENGTH = 20000;
+/** Thrown when a command is too long or nested too deeply to check; callers fail closed. */
+export class LimitError extends Error {}
+
 const HARMLESS_TARGET = /^(?:\/dev\/null|\$null|nul)$/i;
 const ENV_ASSIGN = /^[A-Za-z_]\w*=/;
 
@@ -24,7 +29,7 @@ export function findHeredoc(line) {
 }
 
 /** Remove complete bodies of top-level quoted heredocs: they are literal data. */
-export function stripHeredocs(src) {
+export function stripHeredocs(src, bodies = null) {
   let rest = src;
   let out = '';
   for (;;) {
@@ -40,6 +45,7 @@ export function stripHeredocs(src) {
       const line = rest.slice(start, end).replace(/\r$/, '');
       if ((m.dash ? line.replace(/^\t+/, '') : line) === m.marker) {
         out += rest.slice(0, headerEnd);
+        if (bodies) bodies.push(rest.slice(headerEnd + 1, start));
         rest = rest.slice(end);
         found = true;
         break;
@@ -125,7 +131,7 @@ export function exeName(word) {
   return base.replace(/\.(?:cmd|exe|ps1|bat|com)$/, '');
 }
 
-const WRAPPERS = new Set(['command', 'call', 'start', 'exec', 'env', 'time', 'nohup', 'sudo', 'builtin', 'noglob']);
+const WRAPPERS = new Set(['corepack', 'command', 'call', 'start', 'exec', 'env', 'time', 'nohup', 'sudo', 'builtin', 'noglob']);
 const RUNNERS = new Set(['npx', 'bunx', 'pnpx']);
 const PM = new Set(['pnpm', 'yarn', 'npm', 'bun']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'pwsh', 'powershell', 'cmd']);
@@ -145,7 +151,26 @@ function shellInner(exe, words) {
 const dePowerShell = (s) => String(s).replace(/`/g, '');
 
 const VALUE_OPTIONS = new Set(['--prefix', '--registry', '--userconfig', '--cache', '--workspace', '-w',
-  '--tag', '--otp', '--access', '--loglevel', '--before', '--scope', '-C']);
+  '--tag', '--otp', '--access', '--loglevel', '--before', '--scope', '-C', '--filter', '-F', '--cwd', '--dir']);
+
+const PM_SCRIPT = /^(npm-cli|pnpm|yarn)\.[cm]?js$/i;
+const STDIN_PRODUCERS = new Set(['echo', 'printf', 'write-output', 'write-host']);
+
+/** True when a shell invocation reads its commands from stdin (no -c, no script file). */
+function readsStdin(exe, words) {
+  const args = words.slice(1);
+  if (exe === 'cmd') return !args.some((w) => /^\/[ck]$/i.test(w)) && !args.some((w) => !w.startsWith('/') && !w.startsWith('<'));
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (['<', '<<', '<<<', '<<-'].includes(w)) { i++; continue; }
+    if (w.startsWith('<')) continue;
+    if (w === '-s' || w === '-') return true;
+    if ((exe === 'pwsh' || exe === 'powershell') && /^-(?:c|command)$/i.test(w) && args[i + 1] === '-') return true;
+    if (!w.startsWith('-')) positional.push(w);
+  }
+  return positional.length === 0;
+}
 
 /** Deterministic leading package-manager option skipping, shared with script resolution. */
 export function skipPackageOptions(rest) {
@@ -158,7 +183,7 @@ export function skipPackageOptions(rest) {
   return rest.slice(i);
 }
 
-function normWords(input, depth, out) {
+function normWords(input, depth, out, flags) {
   let words = input.slice();
   for (;;) {
     if (!words.length) return;
@@ -180,13 +205,25 @@ function normWords(input, depth, out) {
         continue;
       }
     }
-    if (SHELLS.has(exe) && depth < 5) {
+    if (exe === 'node') {
+      const i = words.findIndex((w, k) => k > 0 && !w.startsWith('-'));
+      const base = i > 0 ? words[i].split(/[\\/]/).pop() : '';
+      const m = PM_SCRIPT.exec(base);
+      if (m) {
+        words = [m[1].toLowerCase() === 'npm-cli' ? 'npm' : m[1].toLowerCase(), ...words.slice(i + 1)];
+        continue;
+      }
+    }
+    if (SHELLS.has(exe)) {
       const inner = shellInner(exe, words);
-      if (inner !== null) {
+      if (inner !== null && inner.trim() !== '-') {
         const ps = exe === 'pwsh' || exe === 'powershell';
-        out.push(...normalizedSegments(inner, depth + 1, ps).tokenSegments);
+        const sub = normalizedSegments(inner, depth + 1, ps);
+        out.push(...sub.tokenSegments);
+        if (sub.opaque) flags.opaque = true;
         return;
       }
+      if (readsStdin(exe, words)) flags.stdin = true;
     }
     break;
   }
@@ -195,7 +232,8 @@ function normWords(input, depth, out) {
 }
 
 /** Locate one expansion's closing delimiter, respecting nested expansions and quotes. */
-function substitutionEnd(s, start, backtick, powershell) {
+function substitutionEnd(s, start, backtick, powershell, level = 0) {
+  if (level > MAX_DEPTH) throw new LimitError('nesting too deep');
   let quote = null;
   let depth = 1;
   for (let i = start; i < s.length; i++) {
@@ -203,13 +241,13 @@ function substitutionEnd(s, start, backtick, powershell) {
     if (c === '\\' && !powershell && quote !== "'") { i++; continue; }
     if (quote === "'") { if (c === "'") quote = null; continue; }
     if (c === '$' && s[i + 1] === '(') {
-      const end = substitutionEnd(s, i + 2, false, powershell);
+      const end = substitutionEnd(s, i + 2, false, powershell, level + 1);
       if (end < 0) return -1;
       i = end; continue;
     }
     if (c === '`' && !powershell) {
       if (backtick && !quote) return i;
-      const end = substitutionEnd(s, i + 1, true, powershell);
+      const end = substitutionEnd(s, i + 1, true, powershell, level + 1);
       if (end < 0) return -1;
       i = end; continue;
     }
@@ -249,14 +287,47 @@ function substitutions(command, powershell) {
  * shell -c / cmd /c expanded recursively. `powershell: true` removes backtick escapes first.
  */
 export function normalizedSegments(command, depth = 0, powershell = false) {
+  if (depth > MAX_DEPTH) throw new LimitError('nesting too deep');
+  if (String(command).length > MAX_LENGTH) throw new LimitError('command too long');
   const source = powershell ? dePowerShell(command) : String(command);
   const { segments, unbalanced } = lex(source);
   const out = [];
-  for (const seg of segments) normWords(seg.words, depth, out);
-  for (const inner of substitutions(source, powershell)) {
-    out.push(...normalizedSegments(inner, depth + 1, powershell).tokenSegments);
+  const flags = { stdin: false, opaque: false };
+  let literal = false;
+  const feed = [];
+  segments.forEach((seg, idx) => {
+    const before = flags.stdin;
+    normWords(seg.words, depth, out, flags);
+    if (flags.stdin && !before) {
+      const prev = segments[idx - 1];
+      if (prev && STDIN_PRODUCERS.has(exeName(prev.words[0] ?? ''))) literal = true;
+    }
+  });
+  let opaque = false;
+  if (flags.stdin) {
+    // The shell executes text from stdin: match echo/printf arguments, here-strings and heredoc bodies as commands.
+    const bodies = [];
+    stripHeredocs(source, bodies);
+    if (bodies.length || /<<</.test(source) || /<<-?\s*['"]?\w/.test(source)) literal = true;
+    feed.push(...bodies);
+    for (const seg of segments) {
+      if (STDIN_PRODUCERS.has(exeName(seg.words[0] ?? ''))) feed.push(seg.words.slice(1).join(' '));
+      for (const w of seg.words) if (/\s/.test(w)) feed.push(w);
+    }
+    for (const text of feed) {
+      const sub = normalizedSegments(text, depth + 1, powershell);
+      out.push(...sub.tokenSegments);
+      if (sub.opaque) flags.opaque = true;
+    }
+    opaque = !literal;
   }
-  return { segments: out.map((words) => words.join(' ')), tokenSegments: out, unbalanced };
+  for (const inner of substitutions(source, powershell)) {
+    const sub = normalizedSegments(inner, depth + 1, powershell);
+    out.push(...sub.tokenSegments);
+    if (sub.opaque) flags.opaque = true;
+  }
+  opaque = opaque || flags.opaque;
+  return { segments: out.map((words) => words.join(' ')), tokenSegments: out, unbalanced, opaque };
 }
 
 export const collapse = (s) => String(s).trim().replace(/\s+/g, ' ');

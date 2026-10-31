@@ -66,7 +66,8 @@ export const TEST_LIKE = /(^|\/)(tests?|__tests__|spec|specs|e2e|__snapshots__|s
 
 /** Check-config files that are always protected, even outside protected_paths. */
 const CHECK_CONFIG = [
-  [/^(?:.*\/)?(?:\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.cjs|pnpm-workspace\.yaml|bunfig\.toml)$/i, 'package-manager config'],
+  [/^(?:.*\/)?(?:\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.[cm]?js|pnpm-workspace\.yaml|bunfig\.toml)$/i, 'package-manager config'],
+  [/^(?:.*\/)?\.yarn\/plugins\//i, 'package-manager config'],
   [/^(?:.*\/)?(?:jest|vitest|playwright|karma|cypress)\.config\.[cm]?[jt]s$/i, 'test runner config'],
   [/^(?:.*\/)?(?:jest|karma)\.conf(?:ig)?\.(?:js|cjs|mjs|json)$/i, 'test runner config'],
   [/^(?:.*\/)?(?:pytest\.ini|tox\.ini)$/i, 'test runner config'],
@@ -175,16 +176,23 @@ function readStdin() {
  * Run a hook handler fail-safe. handler(input, {root, config, broken}) returns an output
  * object (printed as JSON) or null. No .studio/project.json -> silent no-op.
  * A project.json that exists but is unparseable is passed with broken=true: handlers
- * must fall back to built-in defaults. Internal errors are logged and exit 0.
+ * must fall back to built-in defaults. Internal errors are logged and exit 0, unless the hook
+ * passes `onError(input, error, project)`: its returned output (a fail-closed decision) is printed instead.
  */
-export function runHook(name, handler) {
+export function runHook(name, handler, onError = null) {
   try {
     const raw = readStdin();
     const input = raw.trim() ? JSON.parse(raw) : {};
     const project = findProject(input.cwd || process.cwd());
     if (!project) return process.exit(0);
     if (project.broken) log({ hook: name, error: `config broken: ${project.error}` });
-    const out = handler(input, project);
+    let out;
+    try {
+      out = handler(input, project);
+    } catch (err) {
+      log({ hook: name, error: String(err?.stack || err) });
+      out = onError ? onError(input, err, project) : null;
+    }
     if (out) {
       log({ hook: name, decision: out.hookSpecificOutput?.permissionDecision ?? 'context', tool: input.tool_name, agent: input.agent_type });
       process.stdout.write(JSON.stringify(out));

@@ -187,4 +187,10 @@ runHook('restrict-readonly', (input, { config, root }) => {
     permissionDecision: 'deny',
     permissionDecisionReason: `coding-studio: ${agent.split(':')[1]} is read-only; denied (${why}). Full command: ${shown}\nAllowed: one simple read-only command, or | pipes between them (git status/log/show/diff/rev-parse/ls-files/merge-base, ls/cat/grep/rg/find/head/tail/wc/Get-Content; forward-slash paths; no redirects, ; && || & $() backticks or backslashes), the plugin scripts by exact absolute path (run-verify: verifier only), and for verifier/architect the exact project.json commands as the whole command. Ask Lead to run it or do the change.`,
   });
+}, (input) => {
+  if (!READONLY_AGENTS.has(input.agent_type) || typeof input.tool_input?.command !== 'string') return null;
+  return preToolUse({
+    permissionDecision: 'deny',
+    permissionDecisionReason: 'coding-studio: read-only agent; command denied because the hook failed to check it (internal error). Ask Lead to run it.',
+  });
 });

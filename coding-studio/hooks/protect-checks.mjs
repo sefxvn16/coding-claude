@@ -65,4 +65,6 @@ runHook('protect-checks', (input, { root }) => {
   return preToolUse({
     additionalContext: `coding-studio WARNING: "${rel}" is a protected check path (${pattern}). Loosening, skipping or deleting tests needs reviewer and owner approval; verifier will flag this change.${note}`,
   });
-});
+}, () => preToolUse({
+  additionalContext: 'coding-studio WARNING: protect-checks hit an internal error and could not check this edit; treat the file as possibly protected (tests, check config, .studio/**). Verifier will flag the change.',
+}));
