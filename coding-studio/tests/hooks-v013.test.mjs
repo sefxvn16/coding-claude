@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeRepo, put, runHook, PLUGIN } from './helpers.mjs';
-import { lex, skipPackageOptions, stripHeredocs } from '../scripts/lib/shell.mjs';
 
 const config = { commands: { test: 'npm test' }, gated_commands: ['npm publish*', 'pnpm publish*', 'yarn npm publish*', 'gh release create*', 'docker push*'] };
 const input = (cwd, command, tool_name = 'Bash', agent = 'reviewer') => ({
@@ -21,8 +20,6 @@ test('v013 #1: quoted/nested heredoc markers cannot hide command lines', (t) => 
   const dir = repo(t);
   for (const marker of ['"<<\'EOF\'"', "'<<\"EOF\"'", '(echo <<\'EOF\')', '`echo <<\'EOF\'`']) {
     const command = `node "${script('run-verify')}" ${marker}\nnpm publish\nEOF`;
-    assert.equal(stripHeredocs(command), command, marker);
-    assert.ok(lex(command).segments.some((s) => s.words[0] === 'npm'), marker);
     assert.equal(decision(runHook('restrict-readonly', input(dir, command, 'Bash', 'verifier'))), 'deny', marker);
     assert.equal(decision(runHook('gate-commands', input(dir, command))), 'ask', marker);
   }
@@ -40,20 +37,6 @@ test('v013 #1: only complete Gemini heredocs may contain newlines; no trailing c
   for (const command of ['echo "first\nsecond"', 'npm\ntest', 'npm test\n', `node "${script('gemini-research')}" <<'EOF'\nmissing terminator`]) {
     assert.equal(decision(runHook('restrict-readonly', input(dir, command, 'Bash', 'verifier'))), 'deny', command);
   }
-});
-
-test('v013 #2: gate recursively inspects substitutions including double quotes', (t) => {
-  const dir = repo(t);
-  for (const [tool, command] of [
-    ['Bash', 'echo "$(npm publish)"'], ['Bash', 'echo "`npm publish`"'], ['Bash', '$(npm publish)'],
-    ['PowerShell', '"$(npm publish)"'], ['PowerShell', 'Write-Output "$(n`pm publish)"'],
-    ['Bash', 'echo "$(echo "$(npm publish)")"'], ['Bash', 'echo "$(echo `npm publish`)"'],
-    ['Bash', "bash -c 'echo \"$(npm publish)\"'"], ['Bash', 'pwsh -c \'"$(npm publish)"\''],
-  ]) assert.equal(decision(runHook('gate-commands', input(dir, command, tool))), 'ask', `${tool}: ${command}`);
-  for (const command of ["echo '$(npm publish)'", "echo '`npm publish`'", 'echo "npm publish"', 'echo "$(npm test)"']) {
-    assert.equal(runHook('gate-commands', input(dir, command)).out, null, command);
-  }
-  assert.equal(runHook('gate-commands', input(dir, 'echo "`npm publish`"', 'PowerShell')).out, null);
 });
 
 test('v013 #3: deterministic option skipping and ordered significant token safety net', (t) => {
@@ -94,21 +77,6 @@ test('v013 #7: git -C resolves cumulatively inside repo toplevel, beyond project
   const outside = repo(t);
   fs.symlinkSync(outside, path.join(dir, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal(decision(runHook('restrict-readonly', input(cwd, 'git -C ../escape status'))), 'deny');
-});
-
-test('v013 #1: quote and nesting context survives newlines before a heredoc marker', () => {
-  for (const command of ["echo \"first\n<<'EOF'\"\nnpm publish\nEOF", "(echo first\n<<'EOF')\nnpm publish\nEOF", "echo \\<<'EOF'\nnpm publish\nEOF"]) {
-    assert.equal(stripHeredocs(command), command);
-    assert.ok(lex(command).segments.some((s) => s.words[0] === 'npm'));
-  }
-});
-
-test('v013 #3: known value options consume exactly one value without a branch budget', () => {
-  for (const flag of ['--prefix', '--registry', '--userconfig', '--cache', '--workspace', '-w', '--tag', '--otp', '--access', '--loglevel', '--before', '--scope', '-C']) {
-    assert.deepEqual(skipPackageOptions(['--silent', ...Array(30).fill('--color=false'), flag, 'value', 'test']), ['test'], flag);
-    assert.deepEqual(skipPackageOptions([`${flag}=value`, 'test']), ['test'], flag);
-  }
-  assert.deepEqual(skipPackageOptions(['--unknown', '-x', 'test']), ['test']);
 });
 
 test('v013 #5: package-manager configs are protected by the edit hook, including new files', (t) => {

@@ -87,14 +87,6 @@ test('restrict-readonly v0.1.2: schema-invalid config is broken (no project comm
   assert.equal(decision(runHook('restrict-readonly', bash(dir, 'npm test', ro('verifier')))), 'deny');
 });
 
-test('gate v0.1.2: PowerShell backtick escapes are normalized', () => {
-  const dir = makeRepo({ config });
-  for (const c of ['n`pm publish', 'npm` publish', 'pwsh -c "n`pm publish"', '& n`pm.cmd publish']) {
-    assert.equal(decision(runHook('gate-commands', bash(dir, c, {}, 'PowerShell'))), 'ask', c);
-  }
-  assert.equal(runHook('gate-commands', bash(dir, 'echo `n`pm test', {}, 'PowerShell')).out, null);
-});
-
 test('gate v0.1.2: package-manager global options before the subcommand', () => {
   const dir = makeRepo({ config });
   const cmds = ['npm --registry https://r publish', 'npm --registry=https://r publish', 'npm --dry-run publish', 'npm -w pkg publish',

@@ -1,57 +1,55 @@
-// PreToolUse (Bash|PowerShell): ask before commands matching gated_commands.
-// Safety net, not a guarantee: commands are normalized (wrappers, paths, extensions,
-// shell -c strings) before matching, but a determined bypass can still exist.
 import { DEFAULT_GATED, globToRegex, preToolUse, runHook } from '../scripts/lib/config.mjs';
-import { MAX_LENGTH, collapse, normalizedSegments, skipPackageOptions } from '../scripts/lib/shell.mjs';
 
-const ask = (reason) => preToolUse({ permissionDecision: 'ask', permissionDecisionReason: `coding-studio: ${reason}` });
-const PM = /^(npm|pnpm|yarn|bun)$/i;
+const WRAPPERS = new Set(['env', 'command', 'call', 'start', 'exec', 'time', 'nohup', 'sudo', 'corepack',
+  'npx', 'bunx', 'pnpx', 'bash', 'sh', 'zsh', 'cmd', 'pwsh', 'powershell']);
+const PM = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
-/** Package-manager publish, including unambiguous npm-style abbreviations (pub, publ, publi). */
-function isPublish(tokens) {
-  if (!PM.test(tokens[0] ?? '')) return false;
-  if (tokens.slice(1).some((t) => t.toLowerCase() === 'publish')) return true;
-  let rest = skipPackageOptions(tokens.slice(1));
-  if (tokens[0].toLowerCase() === 'yarn' && rest[0]?.toLowerCase() === 'npm') rest = skipPackageOptions(rest.slice(1));
-  const sub = rest[0]?.toLowerCase();
-  return !!sub && sub.length >= 3 && 'publish'.startsWith(sub);
+const exeName = (w) => w.split(/[\\/]/).pop().toLowerCase().replace(/\.(?:cmd|exe|ps1|bat|com)$/, '');
+
+function segments(command) {
+  return command.split(/&&|\|\||\$\(|[;|&\n\r()`{}]/).map((part) => {
+    let words = (part.match(/"[^"]*"?|'[^']*'?|\S+/g) || []).map((w) => w.replace(/["']/g, '')).filter(Boolean);
+    for (;;) {
+      if (/^[A-Za-z_]\w*=/.test(words[0] ?? '')) { words.shift(); continue; }
+      if (WRAPPERS.has(exeName(words[0] ?? ''))) {
+        words.shift();
+        while (/^(?:-|\/[A-Za-z?]+$)/.test(words[0] ?? '')) words.shift();
+        if (/\s/.test(words[0] ?? '')) words = [...words[0].trim().split(/\s+/), ...words.slice(1)];
+        continue;
+      }
+      if (PM.has(exeName(words[0] ?? '')) && ['dlx', 'exec', 'x'].includes(words[1])) { words.splice(0, 2); continue; }
+      break;
+    }
+    if (words.length) words[0] = exeName(words[0]);
+    return words;
+  }).filter((w) => w.length);
 }
 
 runHook('gate-commands', (input, { config, broken }) => {
   const command = input.tool_input?.command;
   const patterns = broken ? DEFAULT_GATED : config.gated_commands;
   if (typeof command !== 'string' || !Array.isArray(patterns)) return null;
-  const ps = input.tool_name === 'PowerShell';
-  if (command.length > MAX_LENGTH) return ask(`command too complex to check (over ${MAX_LENGTH} characters)`);
-  const { segments, tokenSegments, unbalanced, opaque } = normalizedSegments(command, 0, ps);
-  if (opaque) return ask('shell reads commands from stdin that cannot be extracted and checked');
-  const raw = collapse(ps ? command.replace(/`/g, '') : command);
-  const cands = [raw, ...segments];
-  const publish = tokenSegments.some(isPublish);
+  const segs = segments(command);
+  const publish = segs.some((t) => PM.has(t[0]) && t.includes('publish'));
   for (const pattern of [...patterns, ...(publish ? ['package-manager publish'] : [])]) {
     const p = String(pattern).trim();
     if (!p) continue;
     const re = globToRegex(p, false);
     const significant = p.toLowerCase().split(/[\s*?]+/).filter(Boolean);
-    const ordered = tokenSegments.some((tokens) => {
-      if (!significant.length || tokens[0]?.toLowerCase() !== significant[0]) return false;
+    const hit = p === 'package-manager publish' || segs.some((tokens) => {
+      if (re.test(tokens.join(' '))) return true;
+      if (!significant.length || tokens[0].toLowerCase() !== significant[0]) return false;
       let next = 1;
-      for (const token of tokens.slice(1)) {
-        if (token.toLowerCase() === significant[next]) next++;
-      }
+      for (const t of tokens.slice(1)) if (t.toLowerCase() === significant[next]) next++;
       return next === significant.length;
     });
-    const hit = (publish && p === 'package-manager publish') || ordered || cands.some((c) => re.test(c)) || (unbalanced && globToRegex(`*${p}`, false).test(raw));
     if (hit) {
       const shown = command.length > 200 ? command.slice(0, 200) + '...' : command;
       const why = broken
         ? 'config broken (.studio/project.json unparseable; built-in gated list applied)'
         : `command matches gated pattern "${p}"`;
-      return preToolUse({
-        permissionDecision: 'ask',
-        permissionDecisionReason: `coding-studio: ${why}: ${shown}`,
-      });
+      return preToolUse({ permissionDecision: 'ask', permissionDecisionReason: `coding-studio: ${why}: ${shown}` });
     }
   }
   return null;
-}, (input) => ask('command too complex to check'));
+}, () => preToolUse({ permissionDecision: 'ask', permissionDecisionReason: 'coding-studio: command too complex to check' }));

@@ -8,7 +8,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { checkConfigKind, findProject, isStudioPath, matchPath } from './lib/config.mjs';
-import { exeName, lex, skipPackageOptions } from './lib/shell.mjs';
 
 const ORDER = ['lint', 'typecheck', 'test', 'build', 'integration'];
 const DEFAULT_TIMEOUT_S = 900;
@@ -167,61 +166,12 @@ function invalidIndexFiles(before, after) {
   }).sort();
 }
 
-const PMS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
-const NPM_TEST = new Set(['t', 'tst', 'test']);
-const NPM_LIFECYCLE = new Set(['start', 'stop', 'restart']);
-const RUN_WORDS = new Set(['run', 'run-script', 'rum', 'urn']);
-const MAX_CHAIN = 10;
-
-/** Script names a command line invokes through npm/pnpm/yarn/bun aliases or `node --run`. */
-function scriptsInvoked(command, scripts) {
-  const found = [];
-  for (const { words } of lex(command).segments) {
-    let w = words.slice();
-    while (w.length && /^[A-Za-z_]\w*=/.test(w[0])) w.shift();
-    const manager = exeName(w[0] ?? '');
-    if (manager === 'node') {
-      const i = w.findIndex((x) => x === '--run' || x.startsWith('--run='));
-      if (i >= 0) found.push(w[i].includes('=') ? w[i].slice(6) : w[i + 1]);
-    } else if (PMS.has(manager)) {
-      const args = skipPackageOptions(w.slice(1));
-      const sub = args[0];
-      if (sub === undefined) continue;
-      if (RUN_WORDS.has(sub)) found.push(skipPackageOptions(args.slice(1))[0]);
-      else if (manager === 'npm') {
-        if (NPM_TEST.has(sub)) found.push('test');
-        else if (NPM_LIFECYCLE.has(sub)) found.push(sub);
-      } else if (NPM_TEST.has(sub) && !Object.hasOwn(scripts, sub)) found.push('test');
-      else found.push(sub);
-    }
-  }
-  return found.filter((name) => typeof name === 'string' && name);
-}
-
-/**
- * Files run by the configured commands through package scripts at HEAD: expands npm/pnpm/yarn/bun
- * aliases and `node --run`, follows scripts that call other scripts (depth cap, cycle-safe, pre/post hooks).
- */
-function packageCommandFiles(root, commands) {
+function packageScriptFiles(root) {
   let pkg;
   try { pkg = JSON.parse(git(['show', 'HEAD:./package.json'], root, true)); } catch { return new Set(); }
-  const scripts = pkg?.scripts && typeof pkg.scripts === 'object' ? pkg.scripts : {};
-  const bodies = [];
-  const seen = new Set();
-  const visit = (command, depth) => {
-    if (depth > MAX_CHAIN) return;
-    for (const name of scriptsInvoked(command, scripts)) {
-      for (const n of [`pre${name}`, name, `post${name}`]) {
-        if (typeof scripts[n] !== 'string' || seen.has(n)) continue;
-        seen.add(n);
-        bodies.push(scripts[n]);
-        visit(scripts[n], depth + 1);
-      }
-    }
-  };
-  for (const command of Object.values(commands || {})) if (typeof command === 'string') visit(command, 0);
   const files = new Set();
-  for (const body of bodies) {
+  for (const body of Object.values(pkg?.scripts ?? {})) {
+    if (typeof body !== 'string') continue;
     for (const raw of body.match(/"[^"]*"|'[^']*'|[^\s;&|]+/g) || []) {
       const token = raw.replace(/^["']|["']$/g, '');
       if (token.startsWith('-') || /^[a-z]+:\/\//i.test(token)) continue;
@@ -344,7 +294,7 @@ async function main() {
   }
 
   const before = snapshot(root);
-  const scriptFiles = packageCommandFiles(root, config.commands);
+  const scriptFiles = packageScriptFiles(root);
   const commands = await runCommands(root, config);
   const after = snapshot(root);
   let invalidReason = null;

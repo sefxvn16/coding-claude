@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+- gate-commands simplified to a safety net against honest mistakes: split on shell separators, drop wrappers, env assignments, executable paths and extensions, match `gated_commands` with ordered tokens; any package-manager command containing `publish` asks. Removed: heredoc and stdin extraction, recursive `$()`/backtick parsing, npm abbreviations, `node npm-cli.js` detection, PowerShell backtick handling, length and nesting caps. `scripts/lib/shell.mjs` reduced to the helpers restrict-readonly uses (333 -> 19 lines).
+- run-verify: files referenced by any package.json script are flagged when changed (replaces npm alias and script-chain expansion).
+- Lead skill: Branch step moved into Intake (was misnumbered inside the project gates); restrict-readonly allowlist referenced from the README instead of repeated.
+- README: gate description and known limits updated; removed reference to a missing design file; `/reload-plugins` marked not verified.
+- Tests for the removed bypass classes deleted (41 tests).
+
 ## 0.1.5
 - Lead skill: project gates (survey existing solutions incl. GitHub/marketplaces before design, budget with 50/80% reports, protection target at M2, spec first, max 2 review rounds, Sonnet by default, one nested live run, new session per phase).
 - reviewer: Sonnet by default; severity judged against the protection target; round 2 verifies fixes only.

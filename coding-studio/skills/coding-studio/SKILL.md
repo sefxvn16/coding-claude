@@ -14,7 +14,7 @@ Script paths (substituted in this skill; copy these ABSOLUTE paths into handoffs
 - Gemini research: `${CLAUDE_PLUGIN_ROOT}/scripts/gemini-research.mjs`
 - Codex run: `${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.mjs`
 
-Read-only agents (research, architect, reviewer, release-ops, verifier) keep Bash, but the hook `restrict-readonly` fails closed: it allows only ONE simple read command (or `|` pipes between them: git status/log/show/diff/rev-parse/ls-files/merge-base, ls/cat/grep/find, bare command names, forward-slash paths) and the plugin scripts by exact absolute path (run-verify: verifier only; Gemini: with a quoted heredoc). Verifier and architect may also run a `commands` value from project.json as the whole command, unchanged. Redirects, `;` `&&` `||` `&`, `$()`, backticks, backslashes and newlines are denied. The denial message shows the full command. If an agent needs a write or a complex command, run it yourself or refuse.
+Read-only agents (research, architect, reviewer, release-ops, verifier) keep Bash, limited by the hook `restrict-readonly` to simple read commands and the plugin scripts (allowlist: README "Hooks"). If an agent needs a write or a complex command, run it yourself or refuse.
 
 ## 0. Intake (every coding task)
 1. `git status --porcelain` (ignore `work/`). Uncommitted changes: ask the owner (commit/stash/leave); never fold them into the task silently.
@@ -24,6 +24,7 @@ Read-only agents (research, architect, reviewer, release-ops, verifier) keep Bas
    - Small = all of: one file or local change; no public-interface change (API, schema, data format); no new dependency; easy to revert.
    - Complex = anything else (2+ files/modules, new feature, interface change, new dependency, 5+ steps).
 5. Complex: ask missing information in ONE batch; then create `PLAN.md` with the `plan-tracker` skill, each item with a measurable done-criterion and a PASS/FAIL result with evidence. The first PLAN items are always the project gates in section 0b.
+6. Branch: record `BASE=$(git rev-parse HEAD)` on the integration branch (say which), then `git switch -c cs/<task-id>`. BASE is the commit where the task branch was cut, and the approved `.studio/project.json` must already be committed at BASE. All task commits end up on `cs/<task-id>`. Write BASE (full SHA) into every handoff and into `PLAN.md`; never recompute it later.
 
 ## 0b. Project gates (complex tasks and every new project; cost control)
 1. Survey before design: `coding-studio:research` searches, cheapest first: the repo, installed skills/plugins and installed marketplaces (`~/.claude/plugins/marketplaces/`), community marketplaces and GitHub (for a plugin: existing Claude Code plugins/skills with the same job). Result in `02-research.md` as "Existing: <name, where, how checked> · Reuse: <as-is / adapted, core untouched / idea only> · Build: <what remains>", with the searches done (where, keywords). Third-party plugins/skills: security-check before any recommendation to install. The owner decides reuse vs build at M1; no design before that.
@@ -33,7 +34,6 @@ Read-only agents (research, architect, reviewer, release-ops, verifier) keep Bas
 5. Review cap: at most 2 review rounds per deliverable. Round 1 = full review against the brief and the protection target; round 2 = only verify the round-1 fixes. Findings outside the protection target are LOW. Anything still open after round 2 goes into "Known limits" in the README/dossier and to the owner; never open round 3 on your own.
 6. Models and live runs: builders and reviewers on Sonnet by default; Opus only for the architect at design time or when the owner asks. At most one nested live run (`claude -p` smoke/trial) per deliverable, plus evals only when asked.
 7. Phases: start a new session per phase (survey, design, build, review, release); `PLAN.md` and `work/<task-id>/` carry the state.
-6. Branch: record `BASE=$(git rev-parse HEAD)` on the integration branch (say which), then `git switch -c cs/<task-id>`. BASE is the commit where the task branch was cut, and the approved `.studio/project.json` must already be committed at BASE. All task commits end up on `cs/<task-id>`. Write BASE (full SHA) into every handoff and into `PLAN.md`; never recompute it later.
 
 ## 1. Small-task shortcut
 Skip research/spec/design and M1/M2. Do it yourself (or one `coding-studio:builder`), commit on `cs/<task-id>`, then still run steps 6 (verifier) and 8 (reviewer) on the resulting commit. The owner only meets M4 if something outward-facing is involved. If scope grows mid-task, reclassify as complex.
