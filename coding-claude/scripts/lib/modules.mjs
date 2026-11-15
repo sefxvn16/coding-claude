@@ -36,10 +36,19 @@ export function validateModules(raw) {
     }
     const status = m.status ?? 'open';
     if (!STATUSES.has(status)) throw new ModuleConfigError(`module "${id}": "status" must be open or locked`);
-    modules[id] = { paths: m.paths, public: m.public ?? [], depends_on: m.depends_on ?? [], status };
+    if ('optional' in m && typeof m.optional !== 'boolean') throw new ModuleConfigError(`module "${id}": "optional" must be true or false`);
+    if ('off_test' in m && typeof m.off_test !== 'string') throw new ModuleConfigError(`module "${id}": "off_test" must be a file path`);
+    const optional = m.optional ?? false;
+    if (optional && !m.off_test) throw new ModuleConfigError(`module "${id}" is optional: set "off_test" to the test that runs the rest with it switched off`);
+    modules[id] = { paths: m.paths, public: m.public ?? [], depends_on: m.depends_on ?? [], status, optional, off_test: m.off_test ?? null };
   }
   for (const [id, m] of Object.entries(modules)) {
-    for (const d of m.depends_on) if (!modules[d]) throw new ModuleConfigError(`module "${id}" depends on unknown module "${d}"`);
+    for (const d of m.depends_on) {
+      if (!modules[d]) throw new ModuleConfigError(`module "${id}" depends on unknown module "${d}"`);
+      if (!m.optional && modules[d].optional) {
+        throw new ModuleConfigError(`module "${id}" is not optional but depends on optional module "${d}": switching "${d}" off would break it (let "${id}" own a port that "${d}" plugs into instead)`);
+      }
+    }
   }
   return { dependency_check: mode, modules };
 }

@@ -3,7 +3,7 @@
   "modules": {
     "core": {
       "paths": ["src/core/**"],
-      "public": ["src/core/index.ts"],
+      "public": ["src/core/index.ts", "src/core/ports/**"],
       "depends_on": [],
       "status": "open"
     },
@@ -12,6 +12,14 @@
       "public": ["src/billing/index.ts"],
       "depends_on": ["core"],
       "status": "open"
+    },
+    "promo": {
+      "paths": ["src/promo/**"],
+      "public": ["src/promo/index.ts"],
+      "depends_on": ["core"],
+      "status": "open",
+      "optional": true,
+      "off_test": "tests/promo_off.test.ts"
     },
     "ui": {
       "paths": ["src/ui/**"],

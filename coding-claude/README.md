@@ -45,13 +45,17 @@ Absent = no module checks, behavior as before. Template: `skills/coding-claude/t
 | `modules.<id>.public` | files other modules may import; empty = any file |
 | `modules.<id>.depends_on` | modules this one may import |
 | `modules.<id>.status` | `open` or `locked`; a locked module cannot be edited by any agent |
+| `modules.<id>.optional` | `true` = can be switched off while the rest runs; needs `off_test`; a non-optional module may not list it in `depends_on` |
+| `modules.<id>.off_test` | test file that runs the main flow with the module switched off (part of the project's test command); the audit warns when it is missing |
 | `dependency_check` | `off`, `warn` (default: PASS-FLAGGED) or `block` (FAIL) for new cross-module imports that break `depends_on`/`public` |
+
+Design guide for core + replaceable modules, switch-off, replacement and splitting oversized code: `skills/coding-claude/references/modular-design.md`. The plugin enforces the registry; the switch itself (registry of enabled features, fallback) is code in each project.
 
 The file is owner config: the verifier refuses (CONFIG-ERROR) when it differs from the merge-base, so unlocking is a commit on the integration branch before the task's BASE. Per task, Lead writes `work/<task-id>/scope.json` (`{"modules": [...], "files": [globs]}`, template `templates/scope.json`).
 
 Imports are found by path only: Godot `preload`/`load`/`extends "res://..."` and `path="res://..."` in `.gd/.tscn/.tres/.gdshader` (resolved from the nearest `project.godot`), relative `import`/`require`/`from` in JS/TS/Vue/Svelte (resolved to a real file: extension-less, `index.*`, TS-ESM `.js`). Not detected: GDScript `class_name` globals, TS path aliases, packages, Python; use the project's own boundary linter (e.g. eslint-plugin-boundaries, import-linter) in `commands.lint` for those.
 
-`node "<plugin root>/scripts/check-modules.mjs" [--json]` (read-only agents must use the exact absolute path) audits the whole repo: files per module, modules owning no file, tracked files in no module, the cross-module import map, violations. Exit 0 clean, 1 violations (unless `dependency_check` is `off`) or an empty module, 2 config error.
+`node "<plugin root>/scripts/check-modules.mjs" [--json]` (read-only agents must use the exact absolute path) audits the whole repo: files and lines per module, largest files, most-changed files over the last 200 commits (split candidates), optional modules whose off_test is missing, modules owning no file, tracked files in no module, the cross-module import map, violations. Exit 0 clean, 1 violations (unless `dependency_check` is `off`), an empty module or a missing off_test, 2 config error.
 
 The verifier counts only dependency violations the task added (compared with the file at the merge-base), ignores untracked files created by the project commands, and is PASS-FLAGGED when `work/<task-id>/scope.json` exists for the branch but `--scope` was not given. The hook warns when the branch is `cs/*` and no scope file is found.
 
