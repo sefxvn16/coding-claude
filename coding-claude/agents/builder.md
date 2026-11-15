@@ -26,6 +26,7 @@ Handoff package (goal, decisions made, relevant files, checks, check results so 
 - Tests: you may ADD new test files. You NEVER edit, delete, or loosen an existing protected test, snapshot or golden file, and never touch `.studio/`, test-runner config, CI workflows, or scripts that `.studio/project.json` commands run. If the brief requires an existing test to change, do not change it: list it under "Existing tests needing change" in your result (path, what and why); Lead asks the owner and edits it after approval. The protect-checks hook denies these edits anyway; do not try to get around it with shell writes.
 - No push or publish, no new dependency, no `git reset --hard` or `git clean`. Stay inside your own worktree; writes outside it are denied.
 - At most 3 fix rounds on the same failure, then report FAIL with evidence.
+- Task scope (when the handoff has one): edit only inside it. Files in a locked module or outside the scope are denied by the hook and FAIL verification. A bug or needed change you find outside it: do not fix it; report it under Deviations with file:line evidence.
 
 # Output
 Final message only (Lead saves it as `work/<task-id>/04-handoff-<n>-result.md`; do not write work/ files yourself).

@@ -19,6 +19,7 @@ const MAY_RUN_PROJECT_COMMANDS = new Set(['coding-claude:verifier', 'coding-clau
 const MAY_RUN_VERIFY = new Set(['coding-claude:verifier']);
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VERIFY = path.join(PLUGIN_ROOT, 'scripts', 'run-verify.mjs');
+const MODULES = path.join(PLUGIN_ROOT, 'scripts', 'check-modules.mjs');
 
 const SIMPLE = new Set([
   'ls', 'dir', 'cat', 'type', 'head', 'tail', 'wc', 'pwd', 'cd', 'echo',
@@ -126,7 +127,8 @@ function segmentCheck(words, ctx) {
   if (exe === 'git') return gitAllowed(args, ctx.cwd, ctx.root) ? null : 'git subcommand/option not on the read-only list';
   if (name === 'node') {
     if (args[0] === ctx.marks.verify) return ctx.mayVerify ? null : 'run-verify is for the verifier only';
-    return 'node may run only the plugin verify script (exact absolute path as first argument)';
+    if (args[0] === ctx.marks.modules) return args.slice(1).every((a) => a === '--json') ? null : 'check-modules accepts only --json';
+    return 'node may run only the plugin scripts (exact absolute path as first argument)';
   }
   return 'not on the allowlist';
 }
@@ -134,10 +136,12 @@ function segmentCheck(words, ctx) {
 function evaluate(command, ctx) {
   let s = String(command);
   if (/[\r\n]/.test(s)) return 'newline (multiline input and heredocs are not allowed)';
-  // the exact verify script path (the only place a backslash is allowed) becomes an unforgeable marker
-  for (const f of forms(VERIFY)) {
-    const re = new RegExp(`(?<=^|[\\s"'])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s"'])`, 'gi');
-    s = s.replace(re, ctx.marks.verify);
+  // the exact plugin script paths (the only place a backslash is allowed) become unforgeable markers
+  for (const [key, file] of [['verify', VERIFY], ['modules', MODULES]]) {
+    for (const f of forms(file)) {
+      const re = new RegExp(`(?<=^|[\\s"'])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s"'])`, 'gi');
+      s = s.replace(re, ctx.marks[key]);
+    }
   }
   if (s.includes('\\')) return 'backslash (use forward slashes in paths)';
   for (const [re, why] of RAW_DENY) if (re.test(s)) return why;
@@ -162,14 +166,14 @@ runHook('restrict-readonly', (input, { config, root }) => {
   const nonce = crypto.randomBytes(8).toString('hex');
   const ctx = {
     cwd: input.cwd || process.cwd(), root, mayVerify: MAY_RUN_VERIFY.has(agent),
-    marks: { verify: `PLUGINVERIFY${nonce}` },
+    marks: { verify: `PLUGINVERIFY${nonce}`, modules: `PLUGINMODULES${nonce}` },
   };
   const why = evaluate(command, ctx);
   if (!why) return null;
   const shown = command.length > 2000 ? command.slice(0, 2000) + '...' : command;
   return preToolUse({
     permissionDecision: 'deny',
-    permissionDecisionReason: `coding-claude: ${agent.split(':')[1]} is read-only; denied (${why}). Full command: ${shown}\nAllowed: one simple read-only command, or | pipes between them (git status/log/show/diff/rev-parse/ls-files/merge-base, ls/cat/grep/rg/find/head/tail/wc/Get-Content; forward-slash paths; no redirects, ; && || & $() backticks or backslashes), the plugin run-verify script by exact absolute path (verifier only), and for verifier/architect the exact project.json commands as the whole command. Ask Lead to run it or do the change.`,
+    permissionDecisionReason: `coding-claude: ${agent.split(':')[1]} is read-only; denied (${why}). Full command: ${shown}\nAllowed: one simple read-only command, or | pipes between them (git status/log/show/diff/rev-parse/ls-files/merge-base, ls/cat/grep/rg/find/head/tail/wc/Get-Content; forward-slash paths; no redirects, ; && || & $() backticks or backslashes), the plugin scripts by exact absolute path (run-verify: verifier only; check-modules: only --json), and for verifier/architect the exact project.json commands as the whole command. Ask Lead to run it or do the change.`,
   });
 }, (input) => {
   if (!READONLY_AGENTS.has(input.agent_type) || typeof input.tool_input?.command !== 'string') return null;

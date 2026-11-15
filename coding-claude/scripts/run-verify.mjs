@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // Verifier helper: run project commands on the merged task branch, then diff against the
 // recorded base and flag changes to protected paths, check config and .studio/**.
-//   node run-verify.mjs --base <sha> [--out <file.json>] [--cwd <dir>]
+//   node run-verify.mjs --base <sha> [--scope work/<task-id>/scope.json] [--out <file.json>] [--cwd <dir>]
+// With .studio/modules.json: changes in locked modules or outside --scope FAIL; new cross-module
+// imports that break the registry are flagged (dependency_check warn) or FAIL (block).
 // Exit 0 PASS / PASS-FLAGGED, 1 FAIL / INVALID, 2 CONFIG-ERROR.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { checkConfigKind, findProject, isStudioPath, matchPath } from './lib/config.mjs';
+import { MODULES_REL, dependencyProblems, findTaskScopeFile, loadModules, loadScope, scopeProblem } from './lib/modules.mjs';
 
 const ORDER = ['lint', 'typecheck', 'test', 'build', 'integration'];
 const DEFAULT_TIMEOUT_S = 900;
@@ -88,6 +91,7 @@ function parseArgs(argv) {
     if (argv[i] === '--base') a.base = argv[++i];
     else if (argv[i] === '--out') a.out = argv[++i];
     else if (argv[i] === '--cwd') a.cwd = argv[++i];
+    else if (argv[i] === '--scope') a.scope = argv[++i];
   }
   return a;
 }
@@ -249,6 +253,14 @@ function toMarkdown(r) {
   for (const c of r.commands.filter((x) => !x.ok)) L.push('', `### ${c.name} output (tail)`, '```', c.outputTail, '```');
   L.push('', `## Changes: ${r.changedFiles.length} file(s), ${r.flagged.length} flagged`);
   for (const f of r.flagged) L.push(`- FLAGGED ${f.status} ${f.path} [${f.source}] (${f.scope}): ${f.reasons.join('; ')}`);
+  if (r.modules) {
+    L.push('', `## Modules: scope ${r.modules.scope ? r.modules.scope.modules.join(', ') || '(files only)' : '(none given: only locked modules checked)'}, dependency_check ${r.modules.dependencyCheck}`);
+    if (r.modules.missingScope) L.push(`- FLAGGED: ${r.modules.missingScope} exists but --scope was not given; rerun with --scope`);
+    L.push(`- Scope/lock violations (FAIL): ${r.modules.scopeViolations.length}`);
+    for (const v of r.modules.scopeViolations) L.push(`  - ${v.status} ${v.path}: ${v.reason}`);
+    L.push(`- Dependency violations (${r.modules.dependencyCheck === 'block' ? 'FAIL' : 'flagged'}): ${r.modules.dependencyViolations.length}`);
+    for (const v of r.modules.dependencyViolations) L.push(`  - ${v.file}: ${v.reason} (${v.target})`);
+  }
   return L.join('\n') + '\n';
 }
 
@@ -265,7 +277,13 @@ function guardedConfigDiff(root, mergeBase, config) {
   if (baseRaw === null) return ['.studio/project.json does not exist at the merge-base'];
   let baseCfg;
   try { baseCfg = JSON.parse(baseRaw); } catch { return ['.studio/project.json at the merge-base is unparseable']; }
-  return GUARDED_KEYS.filter((k) => stable(baseCfg?.[k]) !== stable(config[k]));
+  const changed = GUARDED_KEYS.filter((k) => stable(baseCfg?.[k]) !== stable(config[k]));
+  const parse = (raw) => { try { return stable(JSON.parse(raw)); } catch { return `unparseable:${raw}`; } };
+  const baseMods = git(['show', `${mergeBase}:./${MODULES_REL}`], root, true);
+  const file = path.join(root, MODULES_REL);
+  const nowMods = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if ((baseMods === null) !== (nowMods === null) || (nowMods !== null && parse(baseMods) !== parse(nowMods))) changed.push(MODULES_REL);
+  return changed;
 }
 
 async function main() {
@@ -292,6 +310,10 @@ async function main() {
   if (changedKeys.length) {
     throw new ConfigError(`config changed, needs owner approval; nothing was executed (${changedKeys.join(', ')} differ from the merge-base ${mergeBase.slice(0, 12)})`);
   }
+  const reg = loadModules(root);
+  if (args.scope && !reg) throw new ConfigError(`--scope given but ${MODULES_REL} does not exist`);
+  const scope = args.scope ? loadScope(path.resolve(root, args.scope), reg) : null;
+  const untrackedBefore = new Set(git(['ls-files', '--others', '--exclude-standard', '--', '.', ...IGNORED_PATHS], root).split('\n').filter(Boolean));
 
   const before = snapshot(root);
   const scriptFiles = packageScriptFiles(root);
@@ -322,14 +344,38 @@ async function main() {
     flagged.push({ path: rel, status: change.status, source: change.source, scope: studio ? '.studio' : pattern ?? `check-config: ${cfg.kind}`, reasons });
   }
 
+  let modules = null;
+  if (reg) {
+    const scopeViolations = [];
+    const dependencyViolations = [];
+    for (const [rel, change] of [...changes].sort()) {
+      if (isStudioPath(rel)) continue; // flagged above; modules.json itself is guarded
+      if (change.source === 'untracked' && !untrackedBefore.has(rel)) continue; // output of the project commands
+      const reason = scopeProblem(rel, reg, scope);
+      if (reason) scopeViolations.push({ path: rel, status: change.status, reason });
+      if (reg.dependency_check === 'off' || change.status === 'D') continue;
+      let text;
+      try { text = fs.readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
+      // only violations this task added: drop those already present in the file at the merge-base
+      const old = change.status === 'A' ? null : git(['show', `${mergeBase}:./${rel}`], root, true);
+      const key = (p) => `${p.to}|${p.target}|${p.reason}`;
+      const known = new Set(old === null ? [] : dependencyProblems(root, rel, old, reg).map(key));
+      for (const p of dependencyProblems(root, rel, text, reg)) if (!known.has(key(p))) dependencyViolations.push({ file: rel, ...p });
+    }
+    const defaultScope = scope ? null : findTaskScopeFile(root)?.file ?? null;
+    modules = { scope, missingScope: defaultScope, dependencyCheck: reg.dependency_check, scopeViolations, dependencyViolations };
+  }
+  const moduleFail = !!modules && (modules.scopeViolations.length > 0 || (modules.dependencyCheck === 'block' && modules.dependencyViolations.length > 0));
+  const moduleFlag = !!modules && ((modules.dependencyCheck === 'warn' && modules.dependencyViolations.length > 0) || !!modules.missingScope);
+
   const allOk = commands.every((c) => c.ok);
-  const result = invalidReason ? 'INVALID' : !allOk ? 'FAIL' : flagged.length ? 'PASS-FLAGGED' : 'PASS';
+  const result = invalidReason ? 'INVALID' : !allOk || moduleFail ? 'FAIL' : flagged.length || moduleFlag ? 'PASS-FLAGGED' : 'PASS';
   const report = {
     result, invalidReason, head: after.head,
     dirty: git(['status', '--porcelain', '--', '.', ...IGNORED_PATHS], root).trim().length > 0,
     base, mergeBase, commands,
     changedFiles: [...changes].map(([p, c]) => ({ path: p, ...c })),
-    flagged, generatedAt: new Date().toISOString(),
+    flagged, modules, generatedAt: new Date().toISOString(),
   };
   const md = toMarkdown(report);
   if (reportOut) writeReport(reportOut, report, md);

@@ -16,7 +16,7 @@ Brief, research file text, project conventions, task-id, mode (DESIGN or DEBUG);
 # Steps - DESIGN
 1. Check assumptions and constraints against the repo; follow existing patterns and conventions.
 2. List options with trade-offs; give a conditional recommendation ("choose A unless X").
-3. Split into modules: file ownership per builder (no file with two owners), contracts between modules, integration order, test plan, rollback.
+3. Split into modules: file ownership per builder (no file with two owners), contracts between modules, integration order, test plan, rollback. If `.studio/modules.json` exists, run the module audit script given by Lead (`node "<check-modules path>"`), keep the split inside the registry, name the task scope (modules + extra files) and say which registry change the owner would have to approve (unlock, new module, `public`/`depends_on` change). If none exists and the work splits the code into areas, propose a registry draft as an option.
 4. Flag M2 triggers (architecture, new dependency, public interface, schema change) and list consequences for files, config, hooks, docs.
 
 # Steps - DEBUG

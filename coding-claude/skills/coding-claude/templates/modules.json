@@ -1,0 +1,22 @@
+{
+  "dependency_check": "warn",
+  "modules": {
+    "core": {
+      "paths": ["src/core/**"],
+      "public": ["src/core/index.ts"],
+      "depends_on": [],
+      "status": "open"
+    },
+    "billing": {
+      "paths": ["src/billing/**"],
+      "public": ["src/billing/index.ts"],
+      "depends_on": ["core"],
+      "status": "open"
+    },
+    "ui": {
+      "paths": ["src/ui/**"],
+      "depends_on": ["core", "billing"],
+      "status": "open"
+    }
+  }
+}

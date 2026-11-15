@@ -1,0 +1,4 @@
+{
+  "modules": ["billing"],
+  "files": ["tests/billing/**"]
+}

@@ -19,6 +19,10 @@ Task branch: cs/<task-id>   Current HEAD: <hash>
 ## Files you own (edit only these)
 - <path>
 
+## Task scope (only when .studio/modules.json exists; copy of work/<task-id>/scope.json)
+Modules: <ids>   Extra files: <globs>
+Edits outside this scope or inside a locked module are denied (builder) and FAIL verification. Found a problem outside it: report it, do not fix it.
+
 ## Not yours (do not edit)
 - <path> -- owner: <who>
 
