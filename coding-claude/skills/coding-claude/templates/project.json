@@ -14,5 +14,7 @@
     "vercel deploy*", "vercel*--prod*", "npm publish*", "pnpm publish*", "yarn publish*", "yarn npm publish*",
     "cargo publish*", "twine upload*", "gh release create*", "netlify deploy*", "firebase deploy*", "docker push*"
   ],
-  "m2_triggers": ["new dependency", "public API change", "schema change"]
+  "m2_triggers": ["new dependency", "public API change", "schema change"],
+  "rules": [],
+  "fail_output": {}
 }

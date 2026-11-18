@@ -5,6 +5,9 @@ Commit: <hash> (M3/M4 required; results below are for this hash only)
 ## Done
 -
 
+## Spec changes (M1: diff of specs/<feature>.md, open clarification questions)
+-
+
 ## Evidence (commands actually run)
 - <command> -> <result> (verify report: work/<task-id>/05-verify-<n>.md)
 

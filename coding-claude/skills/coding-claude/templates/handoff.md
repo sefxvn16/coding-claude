@@ -5,6 +5,7 @@ BASE (full sha, recorded before the task started): <hash>
 START (builder only: tip of cs/<task-id> when this handoff was written; = BASE for the first builder; for a retry of a builder whose branch has commits, that builder branch tip): <hash>
 Agent id (Lead fills after delegating; used to resume a BLOCKED builder with SendMessage): <id>
 Design (reviewer: contracts to check on both sides): work/<task-id>/03-design.md | none
+Spec (source of truth; never edit): specs/<feature>.md at commit <hash>
 Task branch: cs/<task-id>   Current HEAD: <hash>
 
 ## Goal
@@ -12,6 +13,9 @@ Task branch: cs/<task-id>   Current HEAD: <hash>
 
 ## Decisions already made
 -
+
+## Acceptance ids for you
+- <feature>/A<n> -- test-first: yes | no
 
 ## Relevant files
 - <path> -- <why>
@@ -34,14 +38,24 @@ Edits outside this scope or inside a locked module are denied (builder) and FAIL
 |---|---|---|---|
 | <lint/typecheck/test/build/integration> | PASS / FAIL / not run | <hash> | <builder / verifier report path> |
 
-## Script (absolute path; verifier only)
-- run-verify: <absolute path>   Run: `--base <BASE> --out work/<task-id>/05-verify-<n>.json`
+## Verifier only
+Hash to verify: <hash>   run-verify: <absolute path>   Run: `--base <BASE> --out work/<task-id>/05-verify-<n>.json` (+ `--scope work/<task-id>/scope.json` when modules exist)
 
-## Test rules
-You may add NEW test files. Never edit, delete or loosen an existing protected test, snapshot or golden file, and never touch .studio/, test-runner config, CI workflows or scripts run by project commands. If the brief needs an existing test changed, list it in your report (path, what, why); Lead asks the owner and edits it.
+## Reviewer only
+Owner's ORIGINAL request (verbatim): <text>
+Acceptance criteria: <ids>   Approved spec commits: <hashes>
+Builder results: work/<task-id>/04-handoff-<n>-result.md   Latest verify: work/<task-id>/05-verify-<n>.md   New lesson ids: <ids | none> (+ `lessons.mjs check` output)
+Mode: STANDARD | SECURITY | ADVERSARIAL   Round: 1 | 2   Protection target / out of scope: <text | none>
+Module audit script (when modules exist): <absolute path>
+
+## Architect only
+Mode: DESIGN | DEBUG   Module audit script and modular-design guide (when they apply): <absolute paths>
+
+## Lessons (advisory; the spec, project.json and this handoff win)
+<output of `lessons.mjs match`, or "none">
 
 ## Open issues
 -
 
 ## Report back
-Status, branch, commit hash, files changed, tests added, existing tests needing change, local checks, deviations.
+Status, branch, commit hash, files changed, tests added, acceptance tests (id -> test, red output for test-first ids), existing tests needing change, local checks, deviations.

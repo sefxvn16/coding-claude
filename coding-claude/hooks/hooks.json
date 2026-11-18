@@ -4,13 +4,13 @@
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate-commands.mjs\"", "timeout": 10 },
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/restrict-readonly.mjs\"", "timeout": 10 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate-commands.mjs\"", "timeout": 60 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/restrict-readonly.mjs\"", "timeout": 60 }
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/protect-checks.mjs\"", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/protect-checks.mjs\"", "timeout": 60 }]
       }
     ]
   }

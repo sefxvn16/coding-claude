@@ -25,7 +25,7 @@ Read when designing a new project, a new feature area, or a split of code that g
 ## 4. Independent work by several agents
 
 - One module per builder; scopes are disjoint. Two tasks that both need to change a port are done one after the other, not in parallel.
-- A builder that needs another module changed reports it; Lead opens a separate task (SKILL section 4b).
+- A builder that needs another module changed reports it; Lead opens a separate task (`modules.md`, out-of-scope finding).
 
 ## 5. Stack hints (follow the project's existing conventions first)
 

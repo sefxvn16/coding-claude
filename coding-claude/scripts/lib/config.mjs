@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { validateGateConfig } from '../../skills/coding-claude/templates/gate/gate.mjs';
 
 const CONFIG_REL = path.join('.studio', 'project.json');
 
@@ -27,6 +28,7 @@ export function validateSchema(config) {
   for (const k of ['protected_paths', 'gated_commands', 'm2_triggers']) {
     if (k in c && !isStrArray(c[k])) throw new Error(`"${k}" must be an array of strings`);
   }
+  validateGateConfig(c);
 }
 
 /**
@@ -72,6 +74,7 @@ const CHECK_CONFIG = [
   [/^(?:.*\/)?(?:jest|karma)\.conf(?:ig)?\.(?:js|cjs|mjs|json)$/i, 'test runner config'],
   [/^(?:.*\/)?(?:pytest\.ini|tox\.ini)$/i, 'test runner config'],
   [/^\.github\/workflows\//i, 'CI workflow'],
+  [/^\.githooks\//i, 'git hook'],
 ];
 /** Manifests that hold check config but also dependencies: warned/flagged, not denied to builder. */
 const MANIFESTS = /^(?:.*\/)?(?:package\.json|pyproject\.toml|setup\.cfg)$/i;

@@ -1,0 +1,17 @@
+#!/bin/sh
+# coding-claude gate v0.4.0: run the project quality gate before every push.
+# Installed by /coding-claude:init as .githooks/pre-push and enabled with: git config core.hooksPath .githooks
+# Emergency bypass (owner only): git push --no-verify
+base=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac            # branch deletion: nothing to check
+  case "$remote_sha" in *[!0]*) base="$remote_sha" ;; esac        # existing remote branch: diff against it
+  break
+done
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "gate: note: uncommitted changes are checked too; the pushed commits may differ." >&2
+fi
+if [ -n "$base" ]; then
+  exec node .studio/gate.mjs --base "$base"
+fi
+exec node .studio/gate.mjs

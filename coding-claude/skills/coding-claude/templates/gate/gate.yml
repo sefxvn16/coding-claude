@@ -1,0 +1,23 @@
+# coding-claude gate v0.4.0: runs .studio/gate.mjs on every push and pull request, whichever AI or person pushed.
+# Installed by /coding-claude:init as .github/workflows/gate.yml. Add the project's toolchain in the marked step.
+name: gate
+on:
+  push:
+  pull_request:
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # PROJECT TOOLCHAIN: install what the commands in .studio/project.json need, then point the gate at it,
+      # e.g. echo "GATE_CMD_TEST=..." >> "$GITHUB_ENV" when the local command uses a Windows-only path.
+      # Tools that cache imports (e.g. Godot) may print errors on the very first run of a fresh checkout:
+      # run one warm-up pass in this step (output ignored) so the gate sees the same state as a dev machine.
+      - name: Gate
+        run: node .studio/gate.mjs --base "${{ github.event.pull_request.base.sha || github.event.before }}"

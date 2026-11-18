@@ -97,6 +97,11 @@ runHook('protect-checks', (input, { root }) => {
   if (!project) return null;
   const rel = relToRoot(project.root, abs);
   if (rel === null) return null;
+  if (rel.toLowerCase() === 'lessons.md') {
+    return isBuilder
+      ? preToolUse({ permissionDecision: 'deny', permissionDecisionReason: 'LESSONS.md is written by Lead only; report the lesson to Lead.' })
+      : null;
+  }
 
   const mod = moduleCheck(project, rel, isBuilder);
   if (mod && typeof mod === 'object') return mod;

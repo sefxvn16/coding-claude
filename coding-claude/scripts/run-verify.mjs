@@ -11,10 +11,11 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { checkConfigKind, findProject, isStudioPath, matchPath } from './lib/config.mjs';
 import { MODULES_REL, dependencyProblems, findTaskScopeFile, loadModules, loadScope, scopeProblem } from './lib/modules.mjs';
+import { checkRules, outputFailures } from '../skills/coding-claude/templates/gate/gate.mjs';
 
 const ORDER = ['lint', 'typecheck', 'test', 'build', 'integration'];
 const DEFAULT_TIMEOUT_S = 900;
-const GUARDED_KEYS = ['commands', 'protected_paths', 'gated_commands'];
+const GUARDED_KEYS = ['commands', 'protected_paths', 'gated_commands', 'rules', 'fail_output'];
 const PACKAGE_KEYS = ['scripts', 'jest', 'vitest', 'mocha', 'ava', 'c8', 'nyc'];
 const SKIP_RE = /\.skip\(|\.only\(|\bxit\(|\bxdescribe\(|\bxtest\(|@pytest\.mark\.skip|\bpytest\.skip\(|@unittest\.skip|\bt\.Skip\(|@Disabled|\bit\.todo|\{\s*skip:\s*true\s*\}/g;
 const ASSERT_RE = /\bassert|\bexpect\(/g;
@@ -144,8 +145,9 @@ async function runCommands(root, config) {
     if (typeof cmd !== 'string' || !cmd.trim()) continue;
     const timeoutS = timeoutFor(config, name);
     const r = await runCommand(root, cmd, timeoutS);
+    const failOutput = outputFailures(config, name, r.out);
     results.push({
-      name, command: cmd, exitCode: r.exitCode, ok: r.exitCode === 0, timedOut: r.timedOut, timeoutSeconds: timeoutS,
+      name, command: cmd, exitCode: r.exitCode, ok: r.exitCode === 0 && !failOutput.length, failOutput, timedOut: r.timedOut, timeoutSeconds: timeoutS,
       seconds: r.seconds, outputTail: tail(r.out + (r.timedOut ? `\n[killed after ${timeoutS}s timeout]` : '')),
     });
   }
@@ -249,8 +251,10 @@ function toMarkdown(r) {
   if (r.invalidReason) L.push(`- INVALID: ${r.invalidReason}`);
   L.push('', '## Commands');
   if (!r.commands.length) L.push('- (none configured)');
-  for (const c of r.commands) L.push(`- ${c.ok ? 'PASS' : 'FAIL'} ${c.name}: \`${c.command}\` (exit ${c.exitCode}${c.timedOut ? ', TIMED OUT' : ''}, ${c.seconds}s)`);
+  for (const c of r.commands) L.push(`- ${c.ok ? 'PASS' : 'FAIL'} ${c.name}: \`${c.command}\` (exit ${c.exitCode}${c.timedOut ? ', TIMED OUT' : ''}${c.failOutput?.length ? `, output contains: ${c.failOutput.join(', ')}` : ''}, ${c.seconds}s)`);
   for (const c of r.commands.filter((x) => !x.ok)) L.push('', `### ${c.name} output (tail)`, '```', c.outputTail, '```');
+  L.push('', `## Rules (.studio/project.json "rules"): ${r.ruleViolations.length} violation(s)`);
+  for (const v of r.ruleViolations) L.push(`- FAIL [${v.rule}] ${v.file}:${v.line}: ${v.text}${v.message ? ` (${v.message})` : ''}`);
   L.push('', `## Changes: ${r.changedFiles.length} file(s), ${r.flagged.length} flagged`);
   for (const f of r.flagged) L.push(`- FLAGGED ${f.status} ${f.path} [${f.source}] (${f.scope}): ${f.reasons.join('; ')}`);
   if (r.modules) {
@@ -330,6 +334,10 @@ async function main() {
   const changes = collectChanges(root, mergeBase);
   const flagged = [];
   for (const [rel, change] of [...changes].sort()) {
+    if (rel.toLowerCase() === 'lessons.md') {
+      flagged.push({ path: rel, status: change.status, source: change.source, scope: 'lessons', reasons: ['LESSONS.md changed: the reviewer checks every changed line (step 4b)'] });
+      continue;
+    }
     const studio = isStudioPath(rel);
     const pattern = studio ? '.studio/**' : matchPath(rel, config.protected_paths);
     const cfg = scriptFiles.has(rel.toLowerCase()) ? { hard: true, kind: 'file run by a package script' } : checkConfigKind(rel, config);
@@ -350,6 +358,7 @@ async function main() {
     const dependencyViolations = [];
     for (const [rel, change] of [...changes].sort()) {
       if (isStudioPath(rel)) continue; // flagged above; modules.json itself is guarded
+      if (rel.toLowerCase() === 'lessons.md') continue;
       if (change.source === 'untracked' && !untrackedBefore.has(rel)) continue; // output of the project commands
       const reason = scopeProblem(rel, reg, scope);
       if (reason) scopeViolations.push({ path: rel, status: change.status, reason });
@@ -368,14 +377,15 @@ async function main() {
   const moduleFail = !!modules && (modules.scopeViolations.length > 0 || (modules.dependencyCheck === 'block' && modules.dependencyViolations.length > 0));
   const moduleFlag = !!modules && ((modules.dependencyCheck === 'warn' && modules.dependencyViolations.length > 0) || !!modules.missingScope);
 
+  const ruleViolations = checkRules(root, config);
   const allOk = commands.every((c) => c.ok);
-  const result = invalidReason ? 'INVALID' : !allOk || moduleFail ? 'FAIL' : flagged.length || moduleFlag ? 'PASS-FLAGGED' : 'PASS';
+  const result = invalidReason ? 'INVALID' : !allOk || moduleFail || ruleViolations.length ? 'FAIL' : flagged.length || moduleFlag ? 'PASS-FLAGGED' : 'PASS';
   const report = {
     result, invalidReason, head: after.head,
     dirty: git(['status', '--porcelain', '--', '.', ...IGNORED_PATHS], root).trim().length > 0,
     base, mergeBase, commands,
     changedFiles: [...changes].map(([p, c]) => ({ path: p, ...c })),
-    flagged, modules, generatedAt: new Date().toISOString(),
+    flagged, modules, ruleViolations, generatedAt: new Date().toISOString(),
   };
   const md = toMarkdown(report);
   if (reportOut) writeReport(reportOut, report, md);
