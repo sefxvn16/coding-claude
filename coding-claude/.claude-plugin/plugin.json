@@ -4,5 +4,19 @@
   "description": "Claude-only software studio: Lead orchestrates research, spec, architect, parallel builders, verifier, reviewer, release-ops subagents with owner milestones.",
   "author": {
     "name": "namdongplus"
-  }
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sefxvn16/coding-claude",
+  "repository": "https://github.com/sefxvn16/coding-claude",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "ai-agents",
+    "software-engineering",
+    "multi-agent",
+    "orchestration",
+    "subagents",
+    "quality-gate",
+    "vibe-coding"
+  ]
 }

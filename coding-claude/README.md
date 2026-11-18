@@ -6,11 +6,20 @@ Requirements: Claude Code 2.1.x, Node 20+, a git repo. No plugin dependencies.
 
 Renamed from `coding-studio` in 0.2.0 (Codex and Gemini support removed). Migrating a project: `claude plugin uninstall coding-studio@owner-local --scope local`, install `coding-claude` as below, rename the `<!-- coding-studio:begin/end -->` CLAUDE.md block to `coding-claude` and `coding-studio:` agent names inside it to `coding-claude:`. The `codex@openai-codex` key that the old init added to `.claude/settings.local.json` is no longer needed. `.studio/project.json` and `cs/` branches are unchanged.
 
-## Install (local marketplace)
+## Install
+
+### From GitHub
+
+```bash
+claude plugin marketplace add sefxvn16/coding-claude
+claude plugin install coding-claude@lyna --scope local
+```
+
+### From Local Marketplace
 
 The plugin lives in the marketplace directory `3_Plugins\Lyna` (marketplace name `lyna`).
 
-```
+```bash
 claude plugin marketplace add "D:\OneDrive\AI Relax\1_llm_configs\Claude\3_Plugins\Lyna" --scope local
 claude plugin install coding-claude@lyna --scope local
 ```
